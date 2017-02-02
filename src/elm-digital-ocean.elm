@@ -12,12 +12,14 @@
 --port
 module ElmDigitalOcean exposing (..)
 
+import Style exposing ( style, SClass(..), SId(..), id, class )
+
 import Html exposing ( Html, Attribute
                      , div, p, h2, h3, h4, text, blockquote
                      , table, tr, td, th
                      , input, button, a, img, span, fieldset, label
                      )
-import Html.Attributes exposing ( style, align, value, size
+import Html.Attributes exposing ( align, value, size
                                 , href, target, src, title, alt
                                 , width, height
                                 , type_, size, placeholder
@@ -76,6 +78,7 @@ type alias UpdateFunction =
 type alias CommitFunction =
     Bool -> Model -> ( Model, Cmd Msg )
 
+-- Since there are Models in here, it needs to be tagged with a type.
 type Updater =
     Update UpdateFunction CommitFunction
 
@@ -142,10 +145,34 @@ commitAccounts doit model =
 
 view : Model -> Html Msg
 view model =
-    case model.page of
-        Accounts -> viewAccounts model
-        _ -> text ""
+    div [ ]
+        [ style
+        , div [ id OuterDiv
+              , class AutoMargins
+              , class Centered
+              ]
+            [ h2 [ class Centered ] [ text "Elm Digital Ocean API" ]
+            , case model.page of
+                  Accounts -> viewAccounts model
+                  _ -> text ""
+            ]
+        ]
 
 viewAccounts : Model -> Html Msg
 viewAccounts model =
-    h2 [] [ text "Accounts" ]
+    div [ class AutoMargins ]
+        [ h3 [ class Centered ] [ text "Accounts" ]
+        , table [ class AutoMargins
+                , class PrettyTable
+                ]
+            [ tr [] [ th [] [ text "Name" ]
+                    , th [] [ text "Operation" ]
+                    ]
+            , tr [] [ td [] [ text "Foo" ]
+                    , td [] [ text "Whatever, bro." ]
+                    ]
+            , tr [] [ td [] [ text "Bar" ]
+                    , td [] [ text "And your little dog, too!" ]
+                    ]
+            ]
+        ]
