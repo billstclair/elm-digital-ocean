@@ -19,6 +19,9 @@ type SClass
     | PrettyTable
     | AutoMargins
     | Centered
+    | AlignRight
+    | AlignLeft
+    | Bold
 
 type SId
     = OuterDiv
@@ -60,6 +63,18 @@ rules =
     , rule
         [ Class Centered ]
         [ ( "text-align", "center" )
+        ]
+    , rule
+        [ Class AlignLeft ]
+        [ ( "text-align", "left" )
+        ]
+    , rule
+        [ Class AlignRight ]
+        [ ( "text-align", "right" )
+        ]
+    , rule
+        [ Class Bold ]
+        [ ( "font-weight", "bold" )
         ]
     , rule
         [ Class PrettyTable ]
