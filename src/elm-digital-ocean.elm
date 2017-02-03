@@ -360,7 +360,7 @@ renderAccountEditor oldName account =
                            , value account.name
                            -- Try Dom.focus in elm-lang.Dom
                            -- http://stackoverflow.com/questions/31901397/how-to-set-focus-on-an-element-in-elm
-                           -- , autofocus True      -- Works only first time
+                           , autofocus True      -- Works only first time
                            ]
                          []
                    , if oldName == "" then
