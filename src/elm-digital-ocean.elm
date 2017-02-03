@@ -13,9 +13,11 @@
 module ElmDigitalOcean exposing (..)
 
 import DigitalOceanAccounts exposing ( Account )
+import DigitalOcean exposing ( AccountRes, AccountInfo )
 import Style exposing ( style, SClass(..), SId(..), id, class )
 import Entities exposing ( nbsp, copyright )
 
+import Http exposing ( Error )
 import Html exposing ( Html, Attribute
                      , div, p, h2, h3, h4, text, blockquote
                      , table, tr, td, th
@@ -127,6 +129,7 @@ type Msg = Set Field String
          | Abort
          | EditAccount Account
          | NewAccount
+         | AccountVerified (Result Error AccountRes) Account (List Account)
     
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -143,6 +146,8 @@ update msg model =
                     setAccountPageState account model
                 NewAccount ->
                     setAccountPageState blankAccount model
+                AccountVerified res account accounts ->
+                    accountVerified res account accounts model
 
 setAccountPageState : Account -> Model -> ( Model, Cmd Msg )
 setAccountPageState account model =
@@ -187,7 +192,9 @@ commitAccounts doit model =
                         Nothing -> model
                         Just ea ->
                             if not doit then
-                                model
+                                { model
+                                    | message = Nothing
+                                    , pageState = initialAccountsState }
                             else
                                 let oldName = ea.oldName
                                 in
@@ -199,8 +206,7 @@ commitAccounts doit model =
     in
         -- May need to write accounts to the database,
         -- and test that it's a valid token
-        ( { m | pageState = initialAccountsState }
-        , Cmd.none )
+        ( m, Cmd.none )
 
 addAccount : Account -> Model -> Model
 addAccount account model =
@@ -210,7 +216,11 @@ addAccount account model =
         Nothing ->
             let accounts = account :: model.accounts
             in
-                { model | accounts = List.sortBy .name accounts }
+                { model
+                    | accounts = List.sortBy .name accounts
+                    , message = Nothing
+                    , pageState = initialAccountsState
+                }
 
 changeAccountLoop : String -> Account -> List Account -> List Account -> List Account
 changeAccountLoop oldName account accounts res =
@@ -239,13 +249,49 @@ changeAccount oldName account model =
             Just _ ->
                 { model
                     | message
-                      = Just
-                      "There is already another account with the new name."
+                      = Just "There is already another account with the new name."
                 }
             Nothing ->
                 let accs = changeAccountLoop oldName account accounts []
                 in
-                    { model | accounts = List.sortBy .name accs }
+                    { model
+                        | accounts = List.sortBy .name accs
+                        , message = Nothing
+                        , pageState = initialAccountsState
+                    }
+
+accountVerified : Result Error AccountRes -> Account -> List Account -> Model -> (Model, Cmd Msg)
+accountVerified res account accounts model =
+    case res of
+        Err error ->
+            -- Should really process the error
+            ( { model | message = Just (toString error) }
+            , Cmd.none
+            )
+        Ok accountRes ->
+            let acct = { account | info = Just accountRes.account }
+                name = acct.name
+                accts = LE.replaceIf (\a -> a.name == name) acct model.accounts
+                m = { model | accounts = accts }
+            in
+                ( m, verifyNextAccount accounts model )
+
+verifyNextAccount : List Account -> Model -> Cmd Msg
+verifyNextAccount accounts model =
+    case accounts of
+        [] -> Cmd.none
+        account :: tail ->
+            case account.info of
+                Nothing ->
+                    DigitalOcean.getAccount
+                        account.token
+                        (\res -> AccountVerified res account tail)
+                Just _ ->
+                    verifyNextAccount tail model
+
+verifyAccounts : Model -> ( Model, Cmd Msg)
+verifyAccounts model =
+    ( model, Cmd.none )
 
 -- VIEW
 
@@ -258,6 +304,12 @@ view model =
               , class Centered
               ]
             [ h2 [ class Centered ] [ text "Elm Digital Ocean API" ]
+            , p [ class Centered
+                , class ErrorClass]
+                [ case model.message of
+                      Just m -> text m
+                      Nothing -> text ""
+                ]
             , case model.page of
                   Accounts -> viewAccounts model
                   _ -> text ""
@@ -276,6 +328,7 @@ blankAccount : Account
 blankAccount =
     { name = ""
     , token = ""
+    , info = Nothing
     }
 
 aWidth : String -> Attribute msg

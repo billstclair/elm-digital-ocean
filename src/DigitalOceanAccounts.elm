@@ -11,12 +11,15 @@
 
 module DigitalOceanAccounts exposing ( Account, testAccounts )
 
+import DigitalOcean exposing (AccountInfo)
+
 type alias Account =
     { name : String
     , token : String
+    , info : Maybe AccountInfo
     }
 
 testAccounts : List Account
 testAccounts =
-    [ -- Fill in your own here during development
+    [ -- Put your testing account here
     ]
