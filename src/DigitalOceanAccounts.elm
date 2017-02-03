@@ -18,7 +18,5 @@ type alias Account =
 
 testAccounts : List Account
 testAccounts =
-    [ Account
-          "wws-read"
-          ""
+    [ -- Fill in your own here during development
     ]
