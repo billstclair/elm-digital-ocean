@@ -12,6 +12,7 @@
 --port
 module ElmDigitalOcean exposing (..)
 
+import DigitalOceanAccounts exposing ( Account )
 import Style exposing ( style, SClass(..), SId(..), id, class )
 import Entities exposing ( nbsp, copyright )
 
@@ -50,11 +51,6 @@ main =
         }
 
 -- MODEL
-
-type alias Account =
-    { name : String
-    , token : String
-    }
 
 type Page
     = Accounts
@@ -117,9 +113,12 @@ initialModel =
 -- init json =
 init : ( Model, Cmd Msg )
 init =
-    ( initialModel
-    , Cmd.none
-    )
+    let accounts = DigitalOceanAccounts.testAccounts
+        model = { initialModel | accounts = accounts }
+    in
+        ( model
+        , Cmd.none
+        )
     
 -- UPDATE
 
@@ -358,8 +357,10 @@ renderAccountEditor oldName account =
                , td [ class AlignLeft ]
                    [ input [ onInput (Set NameField)
                            , size 20
-                           , autofocus True
                            , value account.name
+                           -- Try Dom.focus in elm-lang.Dom
+                           -- http://stackoverflow.com/questions/31901397/how-to-set-focus-on-an-element-in-elm
+                           -- , autofocus True      -- Works only first time
                            ]
                          []
                    , if oldName == "" then
@@ -373,7 +374,7 @@ renderAccountEditor oldName account =
                      [ boldText "Token: " ]
                , td [ class AlignLeft ]
                    [ input [ onInput (Set TokenField)
-                           , size 64
+                           , size 68
                            , value account.token
                            ]
                          []
