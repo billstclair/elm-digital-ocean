@@ -13,7 +13,7 @@
 module ElmDigitalOcean exposing (..)
 
 import DigitalOceanAccounts exposing ( Account )
-import DigitalOcean exposing ( AccountRes, AccountInfo )
+import DigitalOcean exposing ( AccountInfo )
 import Style exposing ( style, SClass(..), SId(..), id, class )
 import Entities exposing ( nbsp, copyright )
 
@@ -119,7 +119,7 @@ init =
         model = { initialModel | accounts = accounts }
     in
         ( model
-        , Cmd.none
+        , verifyAccounts model
         )
     
 -- UPDATE
@@ -129,7 +129,7 @@ type Msg = Set Field String
          | Abort
          | EditAccount Account
          | NewAccount
-         | AccountVerified (Result Error AccountRes) Account (List Account)
+         | AccountVerified (Result Error AccountInfo) Account (List Account)
     
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -146,8 +146,8 @@ update msg model =
                     setAccountPageState account model
                 NewAccount ->
                     setAccountPageState blankAccount model
-                AccountVerified res account accounts ->
-                    accountVerified res account accounts model
+                AccountVerified info account accounts ->
+                    accountVerified info account accounts model
 
 setAccountPageState : Account -> Model -> ( Model, Cmd Msg )
 setAccountPageState account model =
@@ -206,7 +206,12 @@ commitAccounts doit model =
     in
         -- May need to write accounts to the database,
         -- and test that it's a valid token
-        ( m, Cmd.none )
+        ( m
+        , if doit then
+              verifyAccounts m
+          else
+              Cmd.none
+        )
 
 addAccount : Account -> Model -> Model
 addAccount account model =
@@ -260,16 +265,16 @@ changeAccount oldName account model =
                         , pageState = initialAccountsState
                     }
 
-accountVerified : Result Error AccountRes -> Account -> List Account -> Model -> (Model, Cmd Msg)
-accountVerified res account accounts model =
-    case res of
+accountVerified : Result Error AccountInfo -> Account -> List Account -> Model -> (Model, Cmd Msg)
+accountVerified info account accounts model =
+    case info of
         Err error ->
             -- Should really process the error
             ( { model | message = Just (toString error) }
             , Cmd.none
             )
-        Ok accountRes ->
-            let acct = { account | info = Just accountRes.account }
+        Ok accountInfo ->
+            let acct = { account | info = Just accountInfo }
                 name = acct.name
                 accts = LE.replaceIf (\a -> a.name == name) acct model.accounts
                 m = { model | accounts = accts }
@@ -285,13 +290,13 @@ verifyNextAccount accounts model =
                 Nothing ->
                     DigitalOcean.getAccount
                         account.token
-                        (\res -> AccountVerified res account tail)
+                        (\info -> AccountVerified info account tail)
                 Just _ ->
                     verifyNextAccount tail model
 
-verifyAccounts : Model -> ( Model, Cmd Msg)
+verifyAccounts : Model -> Cmd Msg
 verifyAccounts model =
-    ( model, Cmd.none )
+    verifyNextAccount model.accounts model
 
 -- VIEW
 
@@ -354,7 +359,7 @@ viewAccountsInternal editingAccount model =
                                , th [] [ text "Operation" ]
                                ]
                        ) ::
-                           (List.map
+                           (List.concatMap
                                 (\account ->
                                      renderAccountRow
                                        account isEditing False oldName)
@@ -362,7 +367,7 @@ viewAccountsInternal editingAccount model =
                            )
                       )
                       (if isEditing && (oldName == "") then
-                           [ renderAccountRow account True True "" ]
+                           renderAccountRow account True True ""
                        else
                            []
                       )
@@ -375,21 +380,34 @@ viewAccountsInternal editingAccount model =
                       [ text "New Account" ]
             ]
 
-renderAccountRow : Account -> Bool -> Bool -> String -> Html Msg
+accountInfoString : AccountInfo -> String
+accountInfoString info =
+    "Email: " ++ info.email ++ ", status: " ++ info.status
+
+renderAccountRow : Account -> Bool -> Bool -> String -> List (Html Msg)
 renderAccountRow account isEditing isNew oldName =
-    tr [] [ td [] [ text account.name ]
-          , td [] [ if isEditing then
-                        if isNew then
-                            text "New"
-                        else if oldName == account.name then
-                            text "Editing"
-                        else
-                            text nbsp
-                    else
-                        button  [ onClick (EditAccount account) ]
-                                [ text "Edit" ]
+    [ tr [] [ td [] [ text account.name ]
+            , td [] [ if isEditing then
+                          if isNew then
+                              text "New"
+                          else if oldName == account.name then
+                                   text "Editing"
+                               else
+                                   text nbsp
+                      else
+                          button  [ onClick (EditAccount account) ]
+                          [ text "Edit" ]
+                    ]
+            ]
+    , tr [] [ td [ colspan 2 ]
+                  [ case account.info of
+                        Nothing ->
+                            text "No server information."
+                        Just info ->
+                            text (accountInfoString info)
                   ]
-          ]
+            ]
+    ]
 
 br : Html msg
 br =

@@ -10,7 +10,7 @@
 --
 ----------------------------------------------------------------------
 
-module DigitalOcean exposing (AccountInfo, AccountRes, getAccount)
+module DigitalOcean exposing (AccountInfo, getAccount)
 
 import Json.Decode as JD exposing (field, Decoder)
 import Json.Encode as JE exposing (Value)
@@ -63,9 +63,18 @@ decodeAccountRes json =
         Ok accountRes ->
             Ok accountRes.account
 
-getAccount : String -> (Result Error AccountRes -> msg) -> Cmd msg
+accountResToInfo : Result Error AccountRes -> Result Error AccountInfo
+accountResToInfo res =
+    case res of
+        Err error -> Err error
+        Ok accountRes ->
+            Ok accountRes.account
+
+getAccount : String -> (Result Error AccountInfo -> msg) -> Cmd msg
 getAccount token resultToMsg =
-    sendGetRequest resultToMsg token accountUrl accountResDecoder 
+    sendGetRequest
+        (\res -> resultToMsg (accountResToInfo res))
+        token accountUrl accountResDecoder 
 
 authHeader : String -> Http.Header
 authHeader token =
