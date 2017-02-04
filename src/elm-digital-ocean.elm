@@ -13,7 +13,7 @@
 module ElmDigitalOcean exposing (..)
 
 import DigitalOceanAccounts exposing ( Account )
-import DigitalOcean exposing ( AccountInfo )
+import DigitalOcean exposing ( AccountInfo, AccountInfoResult )
 import Style exposing ( style, SClass(..), SId(..), id, class )
 import Entities exposing ( nbsp, copyright )
 
@@ -26,11 +26,11 @@ import Html exposing ( Html, Attribute
 import Html.Attributes exposing ( align, value, size, autofocus
                                 , href, target, src, title, alt
                                 , width, height
-                                , type_, size, placeholder
-                                , name, checked
+                                , type_, name, value, size, placeholder
+                                , name, checked, selected
                                 , colspan, disabled
         )
-import Html.Events exposing (onClick, onInput)
+import Html.Events exposing (onClick, onInput, onCheck)
 import List.Extra as LE
 import Debug exposing (log)
 
@@ -115,8 +115,12 @@ initialModel =
 -- init json =
 init : ( Model, Cmd Msg )
 init =
-    let accounts = DigitalOceanAccounts.testAccounts
-        model = { initialModel | accounts = accounts }
+    let accounts = List.sortBy .name DigitalOceanAccounts.testAccounts
+        account = List.head accounts --this should be persistent
+        model = { initialModel
+                    | accounts = accounts
+                    , account = account
+                }
     in
         ( model
         , verifyAccounts model
@@ -124,18 +128,22 @@ init =
     
 -- UPDATE
 
-type Msg = Set Field String
+type Msg = Nop
+         | Set Field String
          | Commit
          | Abort
          | EditAccount Account
          | NewAccount
-         | AccountVerified (Result Error AccountInfo) Account (List Account)
+         | SelectAccount Account
+         | AccountVerified AccountInfoResult Account (List Account)
     
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case model.updater of
         Update updater committer ->
             case msg of
+                Nop ->
+                    ( model, Cmd.none )
                 Set field string ->
                     updater field string model
                 Commit ->
@@ -146,6 +154,10 @@ update msg model =
                     setAccountPageState account model
                 NewAccount ->
                     setAccountPageState blankAccount model
+                SelectAccount account ->
+                    ( { model | account = Just account }
+                    , Cmd.none
+                    )
                 AccountVerified info account accounts ->
                     accountVerified info account accounts model
 
@@ -265,21 +277,14 @@ changeAccount oldName account model =
                         , pageState = initialAccountsState
                     }
 
-accountVerified : Result Error AccountInfo -> Account -> List Account -> Model -> (Model, Cmd Msg)
+accountVerified : AccountInfoResult -> Account -> List Account -> Model -> (Model, Cmd Msg)
 accountVerified info account accounts model =
-    case info of
-        Err error ->
-            -- Should really process the error
-            ( { model | message = Just (toString error) }
-            , Cmd.none
-            )
-        Ok accountInfo ->
-            let acct = { account | info = Just accountInfo }
-                name = acct.name
-                accts = LE.replaceIf (\a -> a.name == name) acct model.accounts
-                m = { model | accounts = accts }
-            in
-                ( m, verifyNextAccount accounts model )
+    let acct = { account | info = Just info }
+        name = acct.name
+        accts = LE.replaceIf (\a -> a.name == name) acct model.accounts
+        m = { model | accounts = accts }
+    in
+        ( m, verifyNextAccount accounts model )
 
 verifyNextAccount : List Account -> Model -> Cmd Msg
 verifyNextAccount accounts model =
@@ -348,6 +353,10 @@ viewAccountsInternal editingAccount model =
                     (True, ea.oldName, ea.account )
                 _ ->
                     (False, "", blankAccount)
+        selectedName = case model.account of
+                           Nothing -> ""
+                           Just acct ->
+                               acct.name
     in
         div [ class AutoMargins ]
             [ h3 [ class Centered ] [ text "Accounts" ]
@@ -355,19 +364,23 @@ viewAccountsInternal editingAccount model =
                     , class PrettyTable
                     ]
                 ( List.append
-                      (( tr [] [ th [ aWidth "10em" ] [ text "Name" ]
+                      (( tr [] [ th [ aWidth "1em" ] [ text nbsp ]
+                               , th [ aWidth "10em" ] [ text "Name" ]
                                , th [] [ text "Operation" ]
                                ]
                        ) ::
                            (List.concatMap
                                 (\account ->
-                                     renderAccountRow
-                                       account isEditing False oldName)
+                                     let isChecked = (selectedName == account.name)
+                                     in
+                                         renderAccountRow
+                                             account isEditing False isChecked oldName
+                                )
                                 model.accounts
                            )
                       )
                       (if isEditing && (oldName == "") then
-                           renderAccountRow account True True ""
+                           renderAccountRow account True True False ""
                        else
                            []
                       )
@@ -380,13 +393,30 @@ viewAccountsInternal editingAccount model =
                       [ text "New Account" ]
             ]
 
-accountInfoString : AccountInfo -> String
-accountInfoString info =
-    "Email: " ++ info.email ++ ", status: " ++ info.status
+accountInfoString : AccountInfoResult -> String
+accountInfoString infoRes =
+    case infoRes of
+        Err error ->
+            toString error      --should process this
+        Ok info ->
+            "[" ++ info.status ++ "] " ++ info.email
 
-renderAccountRow : Account -> Bool -> Bool -> String -> List (Html Msg)
-renderAccountRow account isEditing isNew oldName =
-    [ tr [] [ td [] [ text account.name ]
+renderAccountRow : Account -> Bool -> Bool -> Bool -> String -> List (Html Msg)
+renderAccountRow account isEditing isNew isChecked oldName =
+    [ tr [] [ td []
+                  [ input [ type_ "radio"
+                          , name "account"
+                          , value account.name
+                          , onCheck (\sel ->
+                                         if sel then
+                                             SelectAccount account
+                                         else
+                                             Nop)
+                          , checked isChecked
+                          ]
+                        []
+                  ]
+            , td [] [ text account.name ]
             , td [] [ if isEditing then
                           if isNew then
                               text "New"
@@ -395,11 +425,11 @@ renderAccountRow account isEditing isNew oldName =
                                else
                                    text nbsp
                       else
-                          button  [ onClick (EditAccount account) ]
+                          button  [ onClick <| EditAccount account ]
                           [ text "Edit" ]
                     ]
             ]
-    , tr [] [ td [ colspan 2 ]
+    , tr [] [ td [ colspan 3 ]
                   [ case account.info of
                         Nothing ->
                             text "No server information."

@@ -10,7 +10,7 @@
 --
 ----------------------------------------------------------------------
 
-module DigitalOcean exposing ( AccountInfo, getAccount
+module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
                              , Domain, getDomains, getDomain
                              , DomainRecord, getDomainRecords, getDomainRecord
                              )
@@ -75,7 +75,7 @@ makeGetRequest token url decoder =
 
 sendGetRequest : (Result Error a -> msg) -> String -> String -> Decoder a -> Cmd msg
 sendGetRequest resultToMsg token url decoder =
-    Http.send resultToMsg (makeGetRequest token url decoder)
+    Http.send resultToMsg <| makeGetRequest token url decoder
 
 ---
 --- Accounts
@@ -119,14 +119,17 @@ decodeAccountRes json =
         Ok accountRes ->
             Ok accountRes.account
 
-accountResToInfo : Result Error AccountRes -> Result Error AccountInfo
+type alias AccountInfoResult =
+    Result Error AccountInfo
+
+accountResToInfo : Result Error AccountRes -> AccountInfoResult
 accountResToInfo res =
     case res of
         Err error -> Err error
         Ok accountRes ->
             Ok accountRes.account
 
-getAccount : String -> (Result Error AccountInfo -> msg) -> Cmd msg
+getAccount : String -> (AccountInfoResult -> msg) -> Cmd msg
 getAccount token resultToMsg =
     sendGetRequest
         (\res -> resultToMsg <| accountResToInfo res)
