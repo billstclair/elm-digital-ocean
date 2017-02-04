@@ -231,13 +231,16 @@ addAccount account model =
         Just _ ->
             { model | message = Just "New name is a duplicate." }
         Nothing ->
-            let accounts = account :: model.accounts
-            in
-                { model
-                    | accounts = List.sortBy .name accounts
-                    , message = Nothing
-                    , pageState = initialAccountsState
-                }
+            if account.name == "" then
+                { model | message = Just "Name may not be blank." }
+            else
+                let accounts = account :: model.accounts
+                in
+                    { model
+                        | accounts = List.sortBy .name accounts
+                        , message = Nothing
+                        , pageState = initialAccountsState
+                    }
 
 changeAccountLoop : String -> Account -> List Account -> List Account -> List Account
 changeAccountLoop oldName account accounts res =
