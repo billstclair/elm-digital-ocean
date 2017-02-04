@@ -242,29 +242,15 @@ addAccount account model =
                         , pageState = initialAccountsState
                     }
 
-changeAccountLoop : String -> Account -> List Account -> List Account -> List Account
-changeAccountLoop oldName account accounts res =
-    case accounts of
-        [] -> res
-        head :: tail ->
-            if oldName == head.name then
-                let tl = List.append tail res
-                in
-                    if account.name == "" then
-                        tl
-                    else
-                        account :: tl
-            else
-                changeAccountLoop oldName account tail (head :: res)
-
 changeAccount : String -> Account -> Model -> Model
 changeAccount oldName account model =
     let accounts = model.accounts
+        pred = (\name a -> a.name == name)
     in
         case if oldName == account.name then
                  Nothing
              else
-                 LE.find (\a -> a.name == account.name) accounts
+                 LE.find (pred account.name) accounts
         of
             Just _ ->
                 { model
@@ -272,10 +258,22 @@ changeAccount oldName account model =
                       = Just "There is already another account with the new name."
                 }
             Nothing ->
-                let accs = changeAccountLoop oldName account accounts []
+                let accs =
+                        if account.name == "" then
+                            LE.filterNot (pred oldName) accounts
+                        else
+                            LE.replaceIf (pred oldName) account accounts
+                    selectedAccount = case model.account of
+                                          Nothing -> Nothing
+                                          Just sel ->
+                                              if sel.name == oldName then
+                                                  Just account
+                                              else
+                                                  Just sel
                 in
                     { model
                         | accounts = List.sortBy .name accs
+                        , account = selectedAccount
                         , message = Nothing
                         , pageState = initialAccountsState
                     }
