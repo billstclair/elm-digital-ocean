@@ -101,12 +101,16 @@ initialAccountsState : PageState
 initialAccountsState =
     AccountsState Nothing
 
-initialDomainsState : PageState
-initialDomainsState =
+getInitialAccountsState : Model -> PageState
+getInitialAccountsState model =
+    initialAccountsState
+
+getInitialDomainsState : Model -> PageState
+getInitialDomainsState model =
     DomainsState
 
-initialDomainRecordsState : PageState
-initialDomainRecordsState =
+getInitialDomainRecordsState : Model -> PageState
+getInitialDomainRecordsState model =
     DomainRecordsState
 
 initialModel : Model
@@ -154,9 +158,14 @@ update msg model =
                 Nop ->
                     ( model, Cmd.none )
                 SetPage page ->
-                    ( { model | page = page }
-                    , Cmd.none
-                    )
+                    let props = getPageProperties page
+                    in
+                        ( { model
+                              | page = page
+                              , pageState = props.initialStateGetter model
+                          }
+                        , Cmd.none
+                        )
                 Set field string ->
                     updater field string model
                 Commit ->
@@ -319,11 +328,36 @@ verifyAccounts model =
 
 -- VIEW
 
+type alias PageProperties =
+    { page: Page
+    , title : String
+    , initialStateGetter : Model -> PageState
+    , viewer : Model -> Html Msg
+    }
+
+accountsPage : PageProperties
+accountsPage =
+    PageProperties
+        Accounts "Accounts" getInitialAccountsState viewAccounts
+
+pages : List PageProperties
+pages =
+    [ accountsPage
+    , PageProperties
+        Domains "Domains" getInitialDomainsState viewDomains
+    , PageProperties
+        DomainRecords "DNS Records" getInitialDomainRecordsState viewDomainRecords
+    ]
+
+getPageProperties : Page -> PageProperties
+getPageProperties page =
+    case LE.find (\p -> p.page == page) pages of
+        Nothing -> accountsPage
+        Just p -> p
+
 view : Model -> Html Msg
 view model =
-    let page = case LE.find (\p -> p.page == model.page) pages of
-                   Nothing -> accountsPage
-                   Just p -> p
+    let props = getPageProperties model.page
     in
         div []
             [ style
@@ -339,8 +373,8 @@ view model =
                               Just m -> text m
                               Nothing -> text ""
                         ]
-                  , renderNavigationLine page model
-                  , page.viewer model
+                  , renderNavigationLine props model
+                  , props.viewer model
                   ]
             ]
 
@@ -365,24 +399,6 @@ renderNavigationElement props page =
           , onClick (SetPage props.page)
           ]
           [ text props.title ]
-
-type alias PageProperties =
-    { page: Page
-    , title : String
-    , initialState : PageState
-    , viewer : Model -> Html Msg
-    }
-
-accountsPage : PageProperties
-accountsPage =
-    PageProperties Accounts "Accounts" initialAccountsState viewAccounts
-
-pages : List PageProperties
-pages =
-    [ accountsPage
-    , PageProperties Domains "Domains" initialDomainsState viewDomains
-    , PageProperties DomainRecords "DNS Records" initialDomainRecordsState viewDomainRecords
-    ]
 
 viewAccounts : Model -> Html Msg
 viewAccounts model =
@@ -555,4 +571,4 @@ viewDomains model =
 
 viewDomainRecords : Model -> Html Msg
 viewDomainRecords model =
-    text "Domain records viewer not yet implemented."
+    text "DNS Records viewer not yet implemented."
