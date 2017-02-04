@@ -101,6 +101,14 @@ initialAccountsState : PageState
 initialAccountsState =
     AccountsState Nothing
 
+initialDomainsState : PageState
+initialDomainsState =
+    DomainsState
+
+initialDomainRecordsState : PageState
+initialDomainRecordsState =
+    DomainRecordsState
+
 initialModel : Model
 initialModel =
     { message = Nothing
@@ -129,6 +137,7 @@ init =
 -- UPDATE
 
 type Msg = Nop
+         | SetPage Page
          | Set Field String
          | Commit
          | Abort
@@ -144,6 +153,10 @@ update msg model =
             case msg of
                 Nop ->
                     ( model, Cmd.none )
+                SetPage page ->
+                    ( { model | page = page }
+                    , Cmd.none
+                    )
                 Set field string ->
                     updater field string model
                 Commit ->
@@ -308,24 +321,68 @@ verifyAccounts model =
 
 view : Model -> Html Msg
 view model =
-    div []
-        [ style
-        , div [ id OuterDiv
-              , class AutoMargins
-              , class Centered
-              ]
-            [ h2 [ class Centered ] [ text "Elm Digital Ocean API" ]
-            , p [ class Centered
-                , class ErrorClass]
-                [ case model.message of
-                      Just m -> text m
-                      Nothing -> text ""
-                ]
-            , case model.page of
-                  Accounts -> viewAccounts model
-                  _ -> text ""
+    let page = case LE.find (\p -> p.page == model.page) pages of
+                   Nothing -> accountsPage
+                   Just p -> p
+    in
+        div []
+            [ style
+            , div [ id OuterDiv
+                  , class AutoMargins
+                  , class Centered
+                  ]
+                  [ h2 [ class Centered ] [ text "Elm Digital Ocean API" ]
+                  , p [ class Centered
+                      , class ErrorClass
+                      ]
+                        [ case model.message of
+                              Just m -> text m
+                              Nothing -> text ""
+                        ]
+                  , renderNavigationLine page model
+                  , page.viewer model
+                  ]
             ]
-        ]
+
+nbsp2 : String
+nbsp2 =
+    nbsp ++ nbsp
+
+renderNavigationLine : PageProperties -> Model -> Html Msg
+renderNavigationLine page model =
+    let elts = List.map (\p -> renderNavigationElement p page) pages
+    in
+        p [ class Centered ]
+          <| List.intersperse (text nbsp2) elts
+
+renderNavigationElement : PageProperties -> PageProperties -> Html Msg
+renderNavigationElement props page =
+    if page == props then
+        span [ class SelectedPageLabel ]
+            [ text page.title ]
+    else
+        a [ href "#"
+          , onClick (SetPage props.page)
+          ]
+          [ text props.title ]
+
+type alias PageProperties =
+    { page: Page
+    , title : String
+    , initialState : PageState
+    , viewer : Model -> Html Msg
+    }
+
+accountsPage : PageProperties
+accountsPage =
+    PageProperties Accounts "Accounts" initialAccountsState viewAccounts
+
+pages : List PageProperties
+pages =
+    [ accountsPage
+    , PageProperties Domains "Domains" initialDomainsState viewDomains
+    , PageProperties DomainRecords "DNS Records" initialDomainRecordsState viewDomainRecords
+    ]
 
 viewAccounts : Model -> Html Msg
 viewAccounts model =
@@ -360,8 +417,7 @@ viewAccountsInternal editingAccount model =
                                acct.name
     in
         div [ class AutoMargins ]
-            [ h3 [ class Centered ] [ text "Accounts" ]
-            , table [ class AutoMargins
+            [ table [ class AutoMargins
                     , class PrettyTable
                     ]
                 ( List.append
@@ -492,3 +548,11 @@ renderAccountEditor oldName account =
                 ]
             ]
         ]
+
+viewDomains : Model -> Html Msg
+viewDomains model =
+    text "Domains viewer not yet implemented."
+
+viewDomainRecords : Model -> Html Msg
+viewDomainRecords model =
+    text "Domain records viewer not yet implemented."

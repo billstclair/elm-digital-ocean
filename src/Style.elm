@@ -22,6 +22,7 @@ type SClass
     | AlignRight
     | AlignLeft
     | Bold
+    | SelectedPageLabel
 
 type SId
     = OuterDiv
@@ -75,6 +76,11 @@ rules =
     , rule
         [ Class Bold ]
         [ ( "font-weight", "bold" )
+        ]
+    , rule
+        [ Class SelectedPageLabel ]
+        [ ( "font-size", "120%" )
+        , ( "font-weight", "bold" )
         ]
     , rule
         [ Class PrettyTable ]
