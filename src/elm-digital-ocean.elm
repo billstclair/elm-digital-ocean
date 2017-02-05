@@ -21,7 +21,7 @@ import Entities exposing ( nbsp, copyright )
 
 import Http exposing ( Error )
 import Html exposing ( Html, Attribute
-                     , div, p, h2, h3, h4, text, blockquote
+                     , div, p, h2, h3, h4, text, blockquote, pre
                      , table, tr, td, th
                      , input, button, a, img, span, fieldset, label
                      )
@@ -66,9 +66,14 @@ type alias EditingAccount =
     , account : Account
     }
 
+type alias EditingDomain =
+    { name : String
+    , ip : String
+    }
+
 type PageState
     = AccountsState (Maybe EditingAccount)
-    | DomainsState
+    | DomainsState (Maybe (List Domain)) (Maybe EditingDomain)
     | DomainRecordsState
 
 type Field
@@ -96,6 +101,18 @@ type alias Model =
     , updater : Updater
     }
 
+nullUpdater : Updater
+nullUpdater =
+    Update updateNullField commitNull
+
+updateNullField : Field -> String -> Model -> ( Model, Cmd Msg )
+updateNullField field value model =
+    ( model, Cmd.none )
+
+commitNull : Bool -> Model -> ( Model, Cmd Msg )
+commitNull doit model =
+    ( model, Cmd.none )
+
 accountsUpdater : Updater
 accountsUpdater =
     Update updateAccountsField commitAccounts
@@ -105,19 +122,41 @@ initialAccountsState =
     AccountsState Nothing
 
 type alias InitialPageStateGetter =
-    Model -> (PageState, Cmd Msg)
+    Model -> (PageState, Updater, Cmd Msg)
 
 getInitialAccountsState : InitialPageStateGetter
 getInitialAccountsState model =
-    ( initialAccountsState, Cmd.none )
+    ( initialAccountsState, accountsUpdater, Cmd.none )
+
+domainsUpdater : Updater
+domainsUpdater =
+    --Update updateDomainsField commitDomains
+    nullUpdater
+
+fetchDomainsCmd : Model -> Cmd Msg
+fetchDomainsCmd model =
+    case model.account of
+        Nothing -> Cmd.none
+        Just account ->
+            DigitalOcean.getDomains
+                account.token
+                (\result -> DomainsReceived result)
 
 getInitialDomainsState : InitialPageStateGetter
 getInitialDomainsState model =
-    ( DomainsState, Cmd.none )
+    ( DomainsState Nothing Nothing
+    , domainsUpdater
+    , fetchDomainsCmd model
+    )
+
+domainRecordsUpdater : Updater
+domainRecordsUpdater =
+    --Update updateDomainRecordsField commitDomainRecords
+    nullUpdater
 
 getInitialDomainRecordsState : InitialPageStateGetter
 getInitialDomainRecordsState model =
-    ( DomainRecordsState, Cmd.none )
+    ( DomainRecordsState, domainRecordsUpdater, Cmd.none )
 
 initialModel : Model
 initialModel =
@@ -155,7 +194,10 @@ type Msg = Nop
          | EditAccount Account
          | NewAccount
          | SelectAccount Account
+         | SelectDomain Domain
+         | FetchDomains
          | AccountVerified AccountInfoResult Account (List Account)
+         | DomainsReceived DomainsResult
     
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -166,11 +208,12 @@ update msg model =
                     ( model, Cmd.none )
                 SetPage page ->
                     let props = getPageProperties page
-                        (state, cmd) = props.initialStateGetter model
+                        (state, updater, cmd) = props.initialStateGetter model
                     in
                         ( { model
                               | page = page
                               , pageState = state
+                              , updater = updater
                           }
                         , cmd
                         )
@@ -185,11 +228,26 @@ update msg model =
                 NewAccount ->
                     setAccountPageState blankAccount model
                 SelectAccount account ->
-                    ( { model | account = Just account }
+                    ( { model
+                          | account = Just account
+                          , domain = Nothing
+                      }
+                    , Cmd.none
+                    )
+                FetchDomains ->
+                    ( { model | pageState = DomainsState Nothing Nothing }
+                    , fetchDomainsCmd model
+                    )
+                SelectDomain domain ->
+                    ( { model | domain = Just domain }
                     , Cmd.none
                     )
                 AccountVerified info account accounts ->
                     accountVerified info account accounts model
+                DomainsReceived domains ->
+                    domainsReceived domains model
+
+-- Update Accounts page
 
 setAccountPageState : Account -> Model -> ( Model, Cmd Msg )
 setAccountPageState account model =
@@ -334,6 +392,33 @@ verifyAccounts : Model -> Cmd Msg
 verifyAccounts model =
     verifyNextAccount model.accounts model
 
+-- Update Domains page
+
+domainsReceived : DomainsResult -> Model -> ( Model, Cmd Msg )
+domainsReceived result model =
+    case result of
+        Err error ->
+            ( { model | message = Just (toString error) }
+            , Cmd.none
+            )
+        Ok domains ->
+            case model.pageState of
+                DomainsState _ editing ->
+                    ( { model
+                          | pageState = DomainsState (Just domains) editing
+                          , domain = case model.domain of
+                                         Nothing ->
+                                             List.head domains
+                                         Just dom ->
+                                             LE.find
+                                                 (\d -> d.name == dom.name)
+                                                 domains
+                      }
+                    , Cmd.none
+                    )
+                _ ->
+                    ( model, Cmd.none )
+
 -- VIEW
 
 type alias PageProperties =
@@ -407,6 +492,10 @@ renderNavigationElement props page =
           , onClick (SetPage props.page)
           ]
           [ text props.title ]
+
+---
+--- Accounts page
+---
 
 viewAccounts : Model -> Html Msg
 viewAccounts model =
@@ -573,9 +662,83 @@ renderAccountEditor oldName account =
             ]
         ]
 
+---
+--- Domains page
+---
+
 viewDomains : Model -> Html Msg
 viewDomains model =
-    text "Domains viewer not yet implemented."
+    div []
+      (
+        case model.pageState of
+            DomainsState domains editing ->
+                [ p [] [ case model.account of
+                             Nothing -> text "No account. Shouldn't happen."
+                             Just account ->
+                               span []
+                                   [ span [ class S.Bold ]
+                                         [ text <| "Account: " ]
+                                   , text account.name
+                                   ]
+                       ]
+                , case domains of
+                      Nothing ->
+                          text "Fetching domains..."
+                      Just doms ->
+                        renderDomainsList doms model
+                , p []
+                    [ button [ onClick FetchDomains ]
+                          [ text "Refresh" ]
+                    ]
+                , case domains of
+                      Nothing -> text ""
+                      Just _ ->
+                          case model.domain of
+                              Nothing -> text ""
+                              Just dom ->
+                                  pre [ class S.AlignLeft ]
+                                      [ text dom.zoneFile ]
+                ]
+            state ->
+                [ text ("Bad pageState: " ++ (toString state))
+                ]
+      )
+
+renderDomainsList : List Domain -> Model -> Html Msg
+renderDomainsList domains model =
+    table [ class S.PrettyTable
+          , class S.AutoMargins ]
+        ((tr []
+              [ th [ aWidth "1em" ] [ text nbsp ]
+              , th [] [ text "Domain" ]
+              , th [] [ text "TTL" ]
+              ]
+         ) ::
+             (List.map (\domain -> renderDomainRow domain model) domains)
+        )
+
+renderDomainRow : Domain -> Model -> Html Msg
+renderDomainRow domain model =
+    tr [ class S.AlignLeft ]
+        [ td [] [ input [ type_ "radio"
+                        , name "domain"
+                        , value domain.name
+                        , onCheck (\sel ->
+                                       if sel then
+                                           SelectDomain domain
+                                       else
+                                           Nop
+                                  )
+                        , checked (case model.domain of
+                                       Nothing -> False
+                                       Just dom -> dom.name == domain.name
+                                  )
+                        ]
+                      []
+                ]
+        , td [] [ text domain.name ]
+        , td [] [ text <| toString domain.ttl ]
+        ]
 
 viewDomainRecords : Model -> Html Msg
 viewDomainRecords model =
