@@ -11,8 +11,10 @@
 ----------------------------------------------------------------------
 
 module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
-                             , Domain, getDomains, getDomain
-                             , DomainRecord, getDomainRecords, getDomainRecord
+                             , Domain, DomainsResult, DomainResult
+                             , getDomains, getDomain
+                             , DomainRecord, DomainRecordsResult, DomainRecordResult
+                             , getDomainRecords, getDomainRecord
                              )
 
 import Json.Decode as JD exposing (field, Decoder)
@@ -163,24 +165,30 @@ domainsResDecoder =
         DomainsRes
         (field "domains" (JD.list domainDecoder))
 
-domainsResToDomains : Result Error DomainsRes -> Result Error (List Domain)
+type alias DomainsResult =
+    Result Error (List Domain)
+
+domainsResToDomains : Result Error DomainsRes -> DomainsResult
 domainsResToDomains res =
     case res of
         Err error -> Err error
         Ok domainsRes ->
             Ok domainsRes.domains
 
-getDomains : String -> (Result Error (List Domain) -> msg) -> Cmd msg
+getDomains : String -> (DomainsResult -> msg) -> Cmd msg
 getDomains token resultToMsg =
     sendGetRequest
         (\res -> resultToMsg <| domainsResToDomains res)
         token domainsUrl domainsResDecoder 
 
-getDomain : String -> String -> (Result Error Domain -> msg) -> Cmd msg
+type alias DomainResult =
+    Result Error Domain
+
+getDomain : String -> String -> (DomainResult -> msg) -> Cmd msg
 getDomain token domain resultToMsg =
     let url = domainUrl domain
     in
-        sendGetRequest resultToMsg token url domainDecoder
+        sendGetRequest (\res -> resultToMsg res) token url domainDecoder
 
 ---
 --- Domain Records
@@ -218,20 +226,26 @@ domainRecordsResDecoder =
         DomainRecordsRes
         (field "domain_records" <| JD.list domainRecordDecoder)
 
-domainRecordsResToDomainRecords : Result Error DomainRecordsRes -> Result Error (List DomainRecord)
+type alias DomainRecordsResult =
+    Result Error (List DomainRecord)
+
+domainRecordsResToDomainRecords : Result Error DomainRecordsRes -> DomainRecordsResult
 domainRecordsResToDomainRecords res =
     case res of
         Err error -> Err error
         Ok domainRecordsRes ->
             Ok domainRecordsRes.domainRecords
 
-getDomainRecords : String -> String -> (Result Error (List DomainRecord) -> msg) -> Cmd msg
+getDomainRecords : String -> String -> (DomainRecordsResult -> msg) -> Cmd msg
 getDomainRecords token domain resultToMsg =
     sendGetRequest
         (\res -> resultToMsg <| domainRecordsResToDomainRecords res)
         token (domainRecordsUrl domain) domainRecordsResDecoder
 
-getDomainRecord : String -> String -> Int -> (Result Error DomainRecord -> msg) -> Cmd msg
+type alias DomainRecordResult =
+    Result Error DomainRecord
+
+getDomainRecord : String -> String -> Int -> (DomainRecordResult -> msg) -> Cmd msg
 getDomainRecord token domain id resultToMsg =
     sendGetRequest
         resultToMsg token (domainRecordUrl domain id) domainRecordDecoder

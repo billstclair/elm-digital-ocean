@@ -13,8 +13,10 @@
 module ElmDigitalOcean exposing (..)
 
 import DigitalOceanAccounts exposing ( Account )
-import DigitalOcean exposing ( AccountInfo, AccountInfoResult )
-import Style exposing ( style, SClass(..), SId(..), id, class )
+import DigitalOcean exposing ( AccountInfo, AccountInfoResult
+                             , Domain, DomainsResult
+                             , DomainRecord, DomainRecordsResult )
+import Style as S exposing ( style, SClass, SId, id, class )
 import Entities exposing ( nbsp, copyright )
 
 import Http exposing ( Error )
@@ -88,6 +90,7 @@ type alias Model =
     { message : Maybe String
     , accounts: List Account
     , account : Maybe Account
+    , domain: Maybe Domain
     , page : Page
     , pageState : PageState
     , updater : Updater
@@ -101,23 +104,27 @@ initialAccountsState : PageState
 initialAccountsState =
     AccountsState Nothing
 
-getInitialAccountsState : Model -> PageState
+type alias InitialPageStateGetter =
+    Model -> (PageState, Cmd Msg)
+
+getInitialAccountsState : InitialPageStateGetter
 getInitialAccountsState model =
-    initialAccountsState
+    ( initialAccountsState, Cmd.none )
 
-getInitialDomainsState : Model -> PageState
+getInitialDomainsState : InitialPageStateGetter
 getInitialDomainsState model =
-    DomainsState
+    ( DomainsState, Cmd.none )
 
-getInitialDomainRecordsState : Model -> PageState
+getInitialDomainRecordsState : InitialPageStateGetter
 getInitialDomainRecordsState model =
-    DomainRecordsState
+    ( DomainRecordsState, Cmd.none )
 
 initialModel : Model
 initialModel =
     { message = Nothing
     , accounts = []
     , account = Nothing
+    , domain = Nothing
     , page = Accounts
     , pageState = initialAccountsState
     , updater = accountsUpdater
@@ -159,12 +166,13 @@ update msg model =
                     ( model, Cmd.none )
                 SetPage page ->
                     let props = getPageProperties page
+                        (state, cmd) = props.initialStateGetter model
                     in
                         ( { model
                               | page = page
-                              , pageState = props.initialStateGetter model
+                              , pageState = state
                           }
-                        , Cmd.none
+                        , cmd
                         )
                 Set field string ->
                     updater field string model
@@ -331,7 +339,7 @@ verifyAccounts model =
 type alias PageProperties =
     { page: Page
     , title : String
-    , initialStateGetter : Model -> PageState
+    , initialStateGetter : InitialPageStateGetter
     , viewer : Model -> Html Msg
     }
 
@@ -361,13 +369,13 @@ view model =
     in
         div []
             [ style
-            , div [ id OuterDiv
-                  , class AutoMargins
-                  , class Centered
+            , div [ id S.OuterDiv
+                  , class S.AutoMargins
+                  , class S.Centered
                   ]
-                  [ h2 [ class Centered ] [ text "Elm Digital Ocean API" ]
-                  , p [ class Centered
-                      , class ErrorClass
+                  [ h2 [ class S.Centered ] [ text "Elm Digital Ocean API" ]
+                  , p [ class S.Centered
+                      , class S.ErrorClass
                       ]
                         [ case model.message of
                               Just m -> text m
@@ -386,13 +394,13 @@ renderNavigationLine : PageProperties -> Model -> Html Msg
 renderNavigationLine page model =
     let elts = List.map (\p -> renderNavigationElement p page) pages
     in
-        p [ class Centered ]
+        p [ class S.Centered ]
           <| List.intersperse (text nbsp2) elts
 
 renderNavigationElement : PageProperties -> PageProperties -> Html Msg
 renderNavigationElement props page =
     if page == props then
-        span [ class SelectedPageLabel ]
+        span [ class S.SelectedPageLabel ]
             [ text page.title ]
     else
         a [ href "#"
@@ -432,9 +440,9 @@ viewAccountsInternal editingAccount model =
                            Just acct ->
                                acct.name
     in
-        div [ class AutoMargins ]
-            [ table [ class AutoMargins
-                    , class PrettyTable
+        div [ class S.AutoMargins ]
+            [ table [ class S.AutoMargins
+                    , class S.PrettyTable
                     ]
                 ( List.append
                       (( tr [] [ th [ aWidth "1em" ] [ text nbsp ]
@@ -518,17 +526,17 @@ br =
 
 boldText : String -> Html msg
 boldText string =
-    span [ class Bold ] [ text string ]
+    span [ class S.Bold ] [ text string ]
 
 renderAccountEditor : String -> Account -> Html Msg
 renderAccountEditor oldName account =
     div []
-        [ table [ class AutoMargins ]
+        [ table [ class S.AutoMargins ]
             [ tr []
-               [ td [ class AlignRight
+               [ td [ class S.AlignRight
                     ]
                      [ boldText "Name: " ]
-               , td [ class AlignLeft ]
+               , td [ class S.AlignLeft ]
                    [ input [ onInput (Set NameField)
                            , size 20
                            , value account.name
@@ -544,9 +552,9 @@ renderAccountEditor oldName account =
                    ]
                ]
             , tr []
-               [ td [ class AlignRight ]
+               [ td [ class S.AlignRight ]
                      [ boldText "Token: " ]
-               , td [ class AlignLeft ]
+               , td [ class S.AlignLeft ]
                    [ input [ onInput (Set TokenField)
                            , size 68
                            , value account.token
@@ -555,7 +563,7 @@ renderAccountEditor oldName account =
                    ]
                ]
             , tr []
-                [ td [ class AlignLeft
+                [ td [ class S.AlignLeft
                      , colspan 2]
                       [ button [ onClick Commit ] [ text "Save" ]
                       , text " "
