@@ -15,7 +15,9 @@ module ElmDigitalOcean exposing (..)
 import DigitalOceanAccounts exposing ( Account )
 import DigitalOcean exposing ( AccountInfo, AccountInfoResult
                              , Domain, DomainsResult
-                             , DomainRecord, DomainRecordsResult )
+                             , DomainRecord, DomainRecordsResult
+                             , Droplet, DropletsResult
+                             )
 import Style as S exposing ( style, SClass, SId, id, class )
 import Entities exposing ( nbsp, copyright )
 
@@ -35,6 +37,7 @@ import Html.Attributes exposing ( align, value, size, autofocus
 import Html.Events exposing (onClick, onInput, onCheck)
 import List.Extra as LE
 import Debug exposing (log)
+import Dict exposing (Dict)
 
 {-   No ports yet
 -- (key, value)
@@ -73,11 +76,30 @@ type alias EditingDomain =
     , ip : String
     }
 
+type alias MoveOrCopyDomainStorage =
+    { droplets : Maybe (List Droplet)
+    , toAccount : Maybe Account --Nothing is treated as model.account
+    , toDomainName : Maybe String
+    , toDroplets : Maybe (List Droplet)
+    , toDropletName : Maybe String
+    , ipMap : Dict String String
+    }
+
+initialMoveOrCopyDomainStorage : MoveOrCopyDomainStorage
+initialMoveOrCopyDomainStorage =
+    { droplets = Nothing
+    , toAccount = Nothing
+    , toDomainName = Nothing
+    , toDroplets = Nothing
+    , toDropletName = Nothing
+    , ipMap = Dict.empty
+    }
+
 type PageState
     = AccountsState (Maybe EditingAccount)
     | DomainsState (Maybe (List Domain)) (Maybe EditingDomain)
     | DomainRecordsState
-    | MoveOrCopyDomainState
+    | MoveOrCopyDomainState MoveOrCopyDomainStorage
 
 type Field
     = NameField
@@ -163,16 +185,16 @@ getInitialDomainRecordsState model =
 
 getInitialCopyDomainState : InitialPageStateGetter
 getInitialCopyDomainState model =
-    ( MoveOrCopyDomainState
+    ( MoveOrCopyDomainState initialMoveOrCopyDomainStorage
     , copyDomainUpdater
-    , Cmd.none
+    , fetchDropletsCmd FromDroplets model
     )
 
 getInitialMoveDomainState : InitialPageStateGetter
 getInitialMoveDomainState model =
-    ( MoveOrCopyDomainState
+    ( MoveOrCopyDomainState initialMoveOrCopyDomainStorage
     , moveDomainUpdater
-    , Cmd.none
+    , fetchDropletsCmd FromDroplets model
     )
 
 copyDomainUpdater : Updater
@@ -184,6 +206,19 @@ moveDomainUpdater : Updater
 moveDomainUpdater =
     -- Update updateMoveDomainField commitMoveDomain
     nullUpdater
+
+type WhichDroplets
+    = FromDroplets
+    | ToDroplets
+
+fetchDropletsCmd : WhichDroplets -> Model -> Cmd Msg
+fetchDropletsCmd whichDroplets model =
+    case model.account of
+        Nothing -> Cmd.none
+        Just account ->
+            DigitalOcean.getDroplets
+                account.token
+                (\result -> DropletsReceived result whichDroplets)
 
 initialModel : Model
 initialModel =
@@ -227,6 +262,7 @@ type Msg = Nop
          | MoveDomain Domain
          | AccountVerified AccountInfoResult Account (List Account)
          | DomainsReceived DomainsResult
+         | DropletsReceived DropletsResult WhichDroplets
     
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -270,6 +306,8 @@ update msg model =
                     accountVerified info account accounts model
                 DomainsReceived domains ->
                     domainsReceived domains model
+                DropletsReceived domains whichDroplets ->
+                    dropletsReceived domains whichDroplets model
 
 -- Update Accounts page
 
@@ -453,6 +491,43 @@ domainsReceived result model =
                       }
                     , Cmd.none
                     )
+                _ ->
+                    ( model, Cmd.none )
+
+-- Update move or copy domains page
+
+dropletsReceived : DropletsResult -> WhichDroplets -> Model -> ( Model, Cmd Msg )
+dropletsReceived result whichDroplets model =
+    case result of
+        Err error ->
+            ( { model | message = Just (toString error) }
+            , Cmd.none
+            )
+        Ok droplets ->
+            case model.pageState of
+                MoveOrCopyDomainState storage ->
+                    let (fromDroplets, toDroplets) =
+                        case whichDroplets of
+                            FromDroplets ->
+                                let toDroplets =
+                                        case storage.toAccount of
+                                            Nothing -> Just droplets
+                                            Just _ -> storage.toDroplets
+                                in
+                                    (Just droplets, storage.toDroplets)
+                            ToDroplets ->
+                                (storage.droplets, Just droplets)
+                    in
+                        ( { model
+                              | pageState
+                                = MoveOrCopyDomainState
+                                { storage
+                                    | droplets = fromDroplets
+                                    , toDroplets = toDroplets
+                                }
+                          }
+                        , Cmd.none
+                        )
                 _ ->
                     ( model, Cmd.none )
 
@@ -786,6 +861,14 @@ renderDomainsList domains model =
              (List.map (\domain -> renderDomainRow domain model) domains)
         )
 
+domainBaseUrl : String
+domainBaseUrl =
+    "https://cloud.digitalocean.com/networking/domains/"
+
+domainUrl : Domain -> String
+domainUrl domain =
+    domainBaseUrl ++ domain.name
+
 renderDomainRow : Domain -> Model -> Html Msg
 renderDomainRow domain model =
     tr [ class S.AlignLeft ]
@@ -805,7 +888,11 @@ renderDomainRow domain model =
                         ]
                       []
                 ]
-        , td [] [ text domain.name ]
+        , td [] [ a [ href <| domainUrl domain
+                    , target "_blank"
+                    ]
+                      [ text domain.name ]
+                ]
         , td [] [ text <| toString domain.ttl ]
         , td [] [ button [ onClick <| CopyDomain domain ]
                       [ text "Copy" ]
@@ -815,6 +902,7 @@ renderDomainRow domain model =
                 ]
         ]
 
+-- This can't yet be called
 viewDomainRecords : Model -> Html Msg
 viewDomainRecords model =
     text "DNS Records viewer not yet implemented."

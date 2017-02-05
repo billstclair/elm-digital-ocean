@@ -272,10 +272,22 @@ networkDecoder =
         (field "ip_address" JD.string)
         (field "type" JD.string)
 
+type alias Networks =
+    { v4 : List Network
+    , v6 : List Network
+    }
+
+networksDecoder : Decoder Networks
+networksDecoder =
+    JD.map2
+        Networks
+        (field "v4" (JD.list networkDecoder))
+        (field "v6" (JD.list networkDecoder))
+
 type alias Droplet =
     { id : Int
     , name : String
-    , networks : List Network
+    , networks : Networks
     }
 
 dropletDecoder : Decoder Droplet
@@ -284,7 +296,7 @@ dropletDecoder =
         Droplet
         (field "id" JD.int)
         (field "name" JD.string)
-        (field "networks" <| JD.list networkDecoder)
+        (field "networks" networksDecoder)
 
 type alias DropletsRes =
     { droplets : List Droplet
