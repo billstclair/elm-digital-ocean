@@ -15,6 +15,8 @@ module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
                              , getDomains, getDomain
                              , DomainRecord, DomainRecordsResult, DomainRecordResult
                              , getDomainRecords, getDomainRecord
+                             , Droplet, Network, DropletsResult
+                             , getDroplets
                              )
 
 import Json.Decode as JD exposing (field, Decoder)
@@ -44,6 +46,10 @@ domainRecordsUrl domain =
 domainRecordUrl : String -> Int -> String
 domainRecordUrl domain recordId =
     (domainRecordsUrl domain) ++ "/" ++ (toString recordId)
+
+dropletsUrl : String
+dropletsUrl =
+    baseUrl ++ "droplets"
 
 ---
 --- Generic HTTP GET
@@ -249,3 +255,59 @@ getDomainRecord : String -> String -> Int -> (DomainRecordResult -> msg) -> Cmd 
 getDomainRecord token domain id resultToMsg =
     sendGetRequest
         resultToMsg token (domainRecordUrl domain id) domainRecordDecoder
+
+---
+--- Droplets - Just enough to get their IP addresses
+---
+
+type alias Network =
+    { ip : String
+    , networkType : String
+    }
+
+networkDecoder : Decoder Network
+networkDecoder =
+    JD.map2
+        Network
+        (field "ip_address" JD.string)
+        (field "type" JD.string)
+
+type alias Droplet =
+    { id : Int
+    , name : String
+    , networks : List Network
+    }
+
+dropletDecoder : Decoder Droplet
+dropletDecoder =
+    JD.map3
+        Droplet
+        (field "id" JD.int)
+        (field "name" JD.string)
+        (field "networks" <| JD.list networkDecoder)
+
+type alias DropletsRes =
+    { droplets : List Droplet
+    }
+
+dropletsResDecoder : Decoder DropletsRes
+dropletsResDecoder =
+    JD.map
+        DropletsRes
+        (field "droplets" <| JD.list dropletDecoder)
+
+type alias DropletsResult =
+    Result Error (List Droplet)
+
+dropletsResToDroplets : Result Error DropletsRes -> DropletsResult
+dropletsResToDroplets res =
+    case res of
+        Err error -> Err error
+        Ok dropletsRes ->
+            Ok dropletsRes.droplets
+
+getDroplets : String -> (DropletsResult -> msg) -> Cmd msg
+getDroplets token resultToMsg =
+    sendGetRequest
+        (\res -> resultToMsg <| dropletsResToDroplets res)
+        token dropletsUrl dropletsResDecoder

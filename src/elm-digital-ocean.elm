@@ -57,9 +57,11 @@ main =
 -- MODEL
 
 type Page
-    = Accounts
-    | Domains
-    | DomainRecords
+    = AccountsPage
+    | DomainsPage
+    | DomainRecordsPage
+    | CopyDomainPage
+    | MoveDomainPage
 
 type alias EditingAccount =
     { oldName : String
@@ -75,6 +77,7 @@ type PageState
     = AccountsState (Maybe EditingAccount)
     | DomainsState (Maybe (List Domain)) (Maybe EditingDomain)
     | DomainRecordsState
+    | MoveOrCopyDomainState
 
 type Field
     = NameField
@@ -158,13 +161,37 @@ getInitialDomainRecordsState : InitialPageStateGetter
 getInitialDomainRecordsState model =
     ( DomainRecordsState, domainRecordsUpdater, Cmd.none )
 
+getInitialCopyDomainState : InitialPageStateGetter
+getInitialCopyDomainState model =
+    ( MoveOrCopyDomainState
+    , copyDomainUpdater
+    , Cmd.none
+    )
+
+getInitialMoveDomainState : InitialPageStateGetter
+getInitialMoveDomainState model =
+    ( MoveOrCopyDomainState
+    , moveDomainUpdater
+    , Cmd.none
+    )
+
+copyDomainUpdater : Updater
+copyDomainUpdater =
+    -- Update updateCopyDomainField commitCopyDomain
+    nullUpdater
+
+moveDomainUpdater : Updater
+moveDomainUpdater =
+    -- Update updateMoveDomainField commitMoveDomain
+    nullUpdater
+
 initialModel : Model
 initialModel =
     { message = Nothing
     , accounts = []
     , account = Nothing
     , domain = Nothing
-    , page = Accounts
+    , page = AccountsPage
     , pageState = initialAccountsState
     , updater = accountsUpdater
     }
@@ -196,6 +223,8 @@ type Msg = Nop
          | SelectAccount Account
          | SelectDomain Domain
          | FetchDomains
+         | CopyDomain Domain
+         | MoveDomain Domain
          | AccountVerified AccountInfoResult Account (List Account)
          | DomainsReceived DomainsResult
     
@@ -207,16 +236,7 @@ update msg model =
                 Nop ->
                     ( model, Cmd.none )
                 SetPage page ->
-                    let props = getPageProperties page
-                        (state, updater, cmd) = props.initialStateGetter model
-                    in
-                        ( { model
-                              | page = page
-                              , pageState = state
-                              , updater = updater
-                          }
-                        , cmd
-                        )
+                    setPage page model
                 Set field string ->
                     updater field string model
                 Commit ->
@@ -238,6 +258,10 @@ update msg model =
                     ( { model | pageState = DomainsState Nothing Nothing }
                     , fetchDomainsCmd model
                     )
+                CopyDomain domain ->
+                    setPage CopyDomainPage { model | domain = Just domain }
+                MoveDomain domain ->
+                    setPage MoveDomainPage { model | domain = Just domain }
                 SelectDomain domain ->
                     ( { model | domain = Just domain }
                     , Cmd.none
@@ -248,6 +272,19 @@ update msg model =
                     domainsReceived domains model
 
 -- Update Accounts page
+
+setPage : Page -> Model -> ( Model, Cmd Msg )
+setPage page model =
+    let props = getPageProperties page
+        (state, updater, cmd) = props.initialStateGetter model
+    in
+        ( { model
+              | page = page
+              , pageState = state
+              , updater = updater
+          }
+        , cmd
+        )
 
 setAccountPageState : Account -> Model -> ( Model, Cmd Msg )
 setAccountPageState account model =
@@ -431,15 +468,42 @@ type alias PageProperties =
 accountsPage : PageProperties
 accountsPage =
     PageProperties
-        Accounts "Accounts" getInitialAccountsState viewAccounts
+        AccountsPage "Accounts" getInitialAccountsState viewAccounts
+
+domainsPage : PageProperties
+domainsPage =
+    PageProperties
+        DomainsPage "Domains" getInitialDomainsState viewDomains
+
+domainRecordsPage : PageProperties
+domainRecordsPage =
+    PageProperties
+        DomainRecordsPage "DNS Records" getInitialDomainRecordsState viewDomainRecords
+
+copyDomainPage : PageProperties
+copyDomainPage =
+    PageProperties
+        CopyDomainPage "Copy Domain" getInitialCopyDomainState viewCopyDomain
+
+moveDomainPage : PageProperties
+moveDomainPage =
+    PageProperties
+        MoveDomainPage "Move Domain" getInitialMoveDomainState viewMoveDomain
 
 pages : List PageProperties
 pages =
     [ accountsPage
-    , PageProperties
-        Domains "Domains" getInitialDomainsState viewDomains
-    , PageProperties
-        DomainRecords "DNS Records" getInitialDomainRecordsState viewDomainRecords
+    , domainsPage
+    , domainRecordsPage
+    , copyDomainPage
+    , moveDomainPage
+    ]
+
+navigationPages : List PageProperties
+navigationPages =
+    [ accountsPage
+    , domainsPage
+    --, domainRecordsPage
     ]
 
 getPageProperties : Page -> PageProperties
@@ -477,7 +541,7 @@ nbsp2 =
 
 renderNavigationLine : PageProperties -> Model -> Html Msg
 renderNavigationLine page model =
-    let elts = List.map (\p -> renderNavigationElement p page) pages
+    let elts = List.map (\p -> renderNavigationElement p page) navigationPages
     in
         p [ class S.Centered ]
           <| List.intersperse (text nbsp2) elts
@@ -696,8 +760,12 @@ viewDomains model =
                           case model.domain of
                               Nothing -> text ""
                               Just dom ->
-                                  pre [ class S.AlignLeft ]
-                                      [ text dom.zoneFile ]
+                                  div []
+                                      [ h3 [ class S.Centered ]
+                                            [ text "Zone File" ]
+                                      , pre [ class S.AlignLeft ]
+                                          [ text dom.zoneFile ]
+                                      ]
                 ]
             state ->
                 [ text ("Bad pageState: " ++ (toString state))
@@ -712,6 +780,7 @@ renderDomainsList domains model =
               [ th [ aWidth "1em" ] [ text nbsp ]
               , th [] [ text "Domain" ]
               , th [] [ text "TTL" ]
+              , th [] [ text "Operation" ]
               ]
          ) ::
              (List.map (\domain -> renderDomainRow domain model) domains)
@@ -738,8 +807,22 @@ renderDomainRow domain model =
                 ]
         , td [] [ text domain.name ]
         , td [] [ text <| toString domain.ttl ]
+        , td [] [ button [ onClick <| CopyDomain domain ]
+                      [ text "Copy" ]
+                , text nbsp
+                , button [ onClick <| MoveDomain domain ]
+                      [ text "Move" ]
+                ]
         ]
 
 viewDomainRecords : Model -> Html Msg
 viewDomainRecords model =
     text "DNS Records viewer not yet implemented."
+
+viewCopyDomain : Model -> Html Msg
+viewCopyDomain model =
+    text "Copy Domain not yet implemented."
+
+viewMoveDomain : Model -> Html Msg
+viewMoveDomain model =
+    text "Move Domain not yet implemented."
