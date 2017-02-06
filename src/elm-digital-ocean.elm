@@ -112,6 +112,7 @@ type Field
     | ToDropletField
     | ToAccountField
     | ToDomainField
+    | DomainRecordField Int
     | NoField
 
 type alias UpdateFunction =
@@ -626,6 +627,23 @@ updateCopyDomainStorage storage field value model =
               }
             , Cmd.none
             )
+        DomainRecordField id ->
+            case storage.domainRecords of
+                Nothing -> ( model, Cmd.none )
+                Just records ->
+                    ( { model
+                          | pageState = CopyDomainState
+                                        { storage
+                                            | domainRecords =
+                                              Just
+                                              <| LE.updateIf
+                                                  (\r -> id == r.id)
+                                                  (\r -> { r | data = value })
+                                                  records
+                                        }
+                      }
+                    , Cmd.none
+                    )
         _ ->
             ( model, Cmd.none )
 
@@ -1043,6 +1061,10 @@ truncate length string =
     else
         string
 
+updateableRecordTypes : List String
+updateableRecordTypes =
+    [ "A", "AAAA" ]
+
 domainRecordRows : DomainRecord -> List (Html Msg)
 domainRecordRows record =
     let hasExtraRow = (record.priority /= Nothing)
@@ -1051,34 +1073,44 @@ domainRecordRows record =
         firstRow = tr []
                    [ td [] [ text record.recordType ]
                    , td [] [ text record.name ]
-                   , td [] [ text <| truncate 50 record.data ]
+                   , td [] [ if List.member
+                                 record.recordType updateableRecordTypes
+                             then
+                                 input [ type_ "text"
+                                       , size 30
+                                       , value record.data
+                                       , onInput
+                                             (Set <| DomainRecordField record.id)
+                                       ]
+                                 []
+                             else
+                                 text <| truncate 50 record.data ]
                    ]
     in
         if not hasExtraRow then
             [ firstRow ]
         else
-            let extra = case record.srvWeight of
-                            Nothing -> []
-                            Just w -> [ "weight: " ++ (toString w) ]
-                extra2 = List.append
-                         ( case record.srvPort of
-                               Nothing -> []
-                               Just p -> [ "port: " ++ (toString p) ]
-                         )
-                         extra
-                extra3 = List.append
-                         ( case record.priority of
-                               Nothing -> []
-                               Just p -> [ "priority: " ++ (toString p) ]
-                         )
-                         extra2
+            let el = (\x label ->
+                          case x of
+                              Nothing -> []
+                              Just c ->
+                                  [ label ++ (toString c) ]
+                     )
+                extra = List.concat
+                        [ el record.srvWeight "weight:"
+                        , el record.srvPort "port:"
+                        , el record.priority "priority:"
+                        ]
             in
                 [ firstRow
                 , tr [ class S.DisplayNone ]
                     [ td [ colspan 3 ] []
                     ]
-                , tr [] [ td [ colspan 3]
-                              [ text <| String.concat <| List.intersperse ", " extra3
+                , tr [] [ td [] [ text nbsp ]
+                        , td [ colspan 2]
+                              [ text
+                                    <| String.concat
+                                    <| List.intersperse ", " extra
                               ]
                         ]
                 ]
