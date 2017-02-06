@@ -1158,24 +1158,18 @@ publicNetworkIps networks =
 
 renderIps : List String -> List String -> List (Html msg)
 renderIps a aaaa =
-    let (isA, aStr) = if a == [] then
-                          (False, "")
-                      else
-                          (True, "A: " ++ (String.concat <| List.intersperse ", " a))
-        (isAaaa, aaaaStr) = if aaaa == [] then
-                          (False, "")
-                      else
-                          (True, "AAAA: " ++ (String.concat <| List.intersperse ", " aaaa))
+    let isper = (\l a ->
+                     if a == [] then
+                         []
+                     else
+                         [l ++ (String.concat <| List.intersperse ", " a)]
+                )
     in
-        if isA then
-            if isAaaa then
-                [ text aStr, br, text aaaaStr ]
-            else
-                [ text aStr ]
-        else if isAaaa then
-            [ text aaaaStr ]
-        else
-            []
+        List.concat [ isper "A: " a
+                    , isper "AAAA:" aaaa
+                    ]
+            |> List.map text
+            |> List.intersperse br
 
 viewCopyDomainRows : CopyDomainStorage -> Model -> List (Html Msg)
 viewCopyDomainRows storage model =
