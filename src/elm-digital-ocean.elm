@@ -21,7 +21,7 @@ import DigitalOcean exposing ( AccountInfo, AccountInfoResult
 import Style as S exposing ( style, SClass, SId, id, class
                            , labeledTableStyle
                            )
-import Entities exposing ( nbsp, copyright )
+import Entities exposing ( nbsp, copyright, ellipsis )
 
 import Http exposing ( Error )
 import Html exposing ( Html, Attribute
@@ -1018,22 +1018,70 @@ viewCopyDomainBody : CopyDomainStorage -> Model -> Html Msg
 viewCopyDomainBody storage model =
     div []
         [ table [ class S.AutoMargins
-                , Html.Attributes.style [ ( "th:text-align", "right" )
-                                        , ( "td:text-align", "left" )
-                                        ]
                 ]
               <| viewCopyDomainRows storage model
         , case storage.domainRecords of
               Nothing -> p [] [ text "Fetching domain records..." ]
               Just records ->
-                  table []
-                      <| List.map
-                          (\r -> tr []
-                               [ td [] [ text <| toString r ]
-                               ]
-                          )
-                          records
+                  table [ class S.PrettyTable
+                        , class S.AutoMargins ]
+                      ( List.append
+                            [ tr []
+                                  [ th [] [ text "Type" ]
+                                  , th [] [ text "Name" ]
+                                  , th [] [ text "Data" ]
+                                  ]
+                            ]
+                            <| List.concatMap domainRecordRows records
+                      )
         ]
+
+truncate : Int -> String ->String
+truncate length string =
+    if (String.length string) > length then
+        (String.left (length-1) string) ++ ellipsis
+    else
+        string
+
+domainRecordRows : DomainRecord -> List (Html Msg)
+domainRecordRows record =
+    let hasExtraRow = (record.priority /= Nothing)
+                      || (record.srvPort /= Nothing)
+                      || (record.srvWeight /= Nothing)
+        firstRow = tr []
+                   [ td [] [ text record.recordType ]
+                   , td [] [ text record.name ]
+                   , td [] [ text <| truncate 50 record.data ]
+                   ]
+    in
+        if not hasExtraRow then
+            [ firstRow ]
+        else
+            let extra = case record.srvWeight of
+                            Nothing -> []
+                            Just w -> [ "weight: " ++ (toString w) ]
+                extra2 = List.append
+                         ( case record.srvPort of
+                               Nothing -> []
+                               Just p -> [ "port: " ++ (toString p) ]
+                         )
+                         extra
+                extra3 = List.append
+                         ( case record.priority of
+                               Nothing -> []
+                               Just p -> [ "priority: " ++ (toString p) ]
+                         )
+                         extra2
+            in
+                [ firstRow
+                , tr [ class S.DisplayNone ]
+                    [ td [ colspan 3 ] []
+                    ]
+                , tr [] [ td [ colspan 3]
+                              [ text <| String.concat <| List.intersperse ", " extra3
+                              ]
+                        ]
+                ]
 
 selector : String -> List a -> (a -> String) -> Field -> Html Msg
 selector default list getName field =

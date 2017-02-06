@@ -29,3 +29,7 @@ copyright =
 checkmark : String
 checkmark =
     stringFromCode 10004 -- \u2714
+
+ellipsis : String
+ellipsis =
+    stringFromCode 8230 -- \u2026

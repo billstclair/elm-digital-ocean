@@ -23,6 +23,7 @@ type SClass
     | Centered
     | AlignRight
     | AlignLeft
+    | DisplayNone
     | Bold
     | SelectedPageLabel
 
@@ -70,6 +71,10 @@ rules =
     , rule
         [ Class AlignLeft ]
         [ ( "text-align", "left" )
+        ]
+    , rule
+        [ Class DisplayNone ]
+        [ ( "display", "none" )
         ]
     , rule
         [ Class AlignRight ]
