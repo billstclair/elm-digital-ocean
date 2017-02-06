@@ -18,13 +18,15 @@ import DigitalOcean exposing ( AccountInfo, AccountInfoResult
                              , DomainRecord, DomainRecordsResult
                              , Droplet, DropletsResult
                              )
-import Style as S exposing ( style, SClass, SId, id, class )
+import Style as S exposing ( style, SClass, SId, id, class
+                           , labeledTableStyle
+                           )
 import Entities exposing ( nbsp, copyright )
 
 import Http exposing ( Error )
 import Html exposing ( Html, Attribute
                      , div, p, h2, h3, h4, text, blockquote, pre
-                     , table, tr, td, th
+                     , table, tr, td, th, colgroup, col
                      , input, button, a, img, span, fieldset, label
                      )
 import Html.Attributes exposing ( align, value, size, autofocus
@@ -79,7 +81,7 @@ type alias EditingDomain =
 type alias MoveOrCopyDomainStorage =
     { droplets : Maybe (List Droplet)
     , toAccount : Maybe Account --Nothing is treated as model.account
-    , toDomainName : Maybe String
+    , toDomainName : String
     , toDroplets : Maybe (List Droplet)
     , toDropletName : Maybe String
     , ipMap : Dict String String
@@ -89,7 +91,7 @@ initialMoveOrCopyDomainStorage : MoveOrCopyDomainStorage
 initialMoveOrCopyDomainStorage =
     { droplets = Nothing
     , toAccount = Nothing
-    , toDomainName = Nothing
+    , toDomainName = ""
     , toDroplets = Nothing
     , toDropletName = Nothing
     , ipMap = Dict.empty
@@ -909,7 +911,43 @@ viewDomainRecords model =
 
 viewCopyDomain : Model -> Html Msg
 viewCopyDomain model =
-    text "Copy Domain not yet implemented."
+    div []
+        [ labeledTableStyle
+        , h3 [ class S.Centered ] [ text "Copy Domain" ]
+        , table [ class S.AutoMargins
+                , Html.Attributes.style [ ( "th:text-align", "right" )
+                                        , ( "td:text-align", "left" )
+                                        ]
+                ]
+            ( case model.pageState of
+                  MoveOrCopyDomainState storage ->
+                      viewCopyDomainRows storage model
+                  _ ->
+                      [ tr []
+                            [ td [] [ text "Bad storage. Shouldn't happen." ]
+                            ]
+                      ]
+            )
+        ]
+
+viewCopyDomainRows : MoveOrCopyDomainStorage -> Model -> List (Html Msg)
+viewCopyDomainRows storage model =
+    let fromAccount = case model.account of
+                          Nothing -> "None"
+                          Just acct -> acct.name
+        fromDomain = case model.domain of
+                         Nothing -> "None"
+                         Just domain -> domain.name
+    in
+        [ tr []
+              [ th [] [ text "From account:" ]
+              , td [] [ text fromAccount ]
+              ]
+        , tr []
+            [ th [] [ text "From domain:" ]
+            , td [] [ text fromDomain ]
+            ]
+        ]
 
 viewMoveDomain : Model -> Html Msg
 viewMoveDomain model =

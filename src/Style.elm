@@ -9,7 +9,9 @@
 --
 ----------------------------------------------------------------------
 
-module Style exposing ( style, SClass(..), SId(..), id, class )
+module Style exposing ( style, SClass(..), SId(..), id, class
+                      , labeledTableStyle
+                      )
 
 import Css exposing (Sel(..))
 import Html.Attributes
@@ -75,7 +77,7 @@ rules =
         ]
     , rule
         [ Class Bold ]
-        [ ( "font-weight", "bold" )
+        [ ( "Bold-weight", "bold" )
         ]
     , rule
         [ Class SelectedPageLabel ]
@@ -124,3 +126,20 @@ id =
 
 class =
     stylesheet.class
+
+labeledTableRules =
+    [ rule
+        [ Type "th" ]
+        [ ( "text-align", "right" )
+        ]
+    , rule
+        [ Type "td" ]
+        [ ( "text-align", "left" )
+        ]
+    ]
+
+labeledTableStylesheet =
+    Css.stylesheet imports labeledTableRules
+
+labeledTableStyle =
+    Css.style [ Html.Attributes.scoped True ] labeledTableStylesheet
