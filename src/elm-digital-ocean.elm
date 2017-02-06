@@ -28,6 +28,7 @@ import Html exposing ( Html, Attribute
                      , div, p, h2, h3, h4, text, blockquote, pre
                      , table, tr, td, th, colgroup, col
                      , input, button, a, img, span, fieldset, label
+                     , select, option
                      )
 import Html.Attributes exposing ( align, value, size, autofocus
                                 , href, target, src, title, alt
@@ -83,7 +84,7 @@ type alias MoveOrCopyDomainStorage =
     , toAccount : Maybe Account --Nothing is treated as model.account
     , toDomainName : String
     , toDroplets : Maybe (List Droplet)
-    , toDropletName : Maybe String
+    , toDroplet : Maybe Droplet
     , ipMap : Dict String String
     }
 
@@ -93,7 +94,7 @@ initialMoveOrCopyDomainStorage =
     , toAccount = Nothing
     , toDomainName = ""
     , toDroplets = Nothing
-    , toDropletName = Nothing
+    , toDroplet = Nothing
     , ipMap = Dict.empty
     }
 
@@ -106,6 +107,9 @@ type PageState
 type Field
     = NameField
     | TokenField
+    | ToDropletField
+    | ToAccountField
+    | ToDomainField
     | NoField
 
 type alias UpdateFunction =
@@ -189,14 +193,14 @@ getInitialCopyDomainState : InitialPageStateGetter
 getInitialCopyDomainState model =
     ( MoveOrCopyDomainState initialMoveOrCopyDomainStorage
     , copyDomainUpdater
-    , fetchDropletsCmd FromDroplets model
+    , fetchDropletsCmd FromDroplets model.account
     )
 
 getInitialMoveDomainState : InitialPageStateGetter
 getInitialMoveDomainState model =
     ( MoveOrCopyDomainState initialMoveOrCopyDomainStorage
     , moveDomainUpdater
-    , fetchDropletsCmd FromDroplets model
+    , fetchDropletsCmd FromDroplets model.account
     )
 
 copyDomainUpdater : Updater
@@ -213,13 +217,13 @@ type WhichDroplets
     = FromDroplets
     | ToDroplets
 
-fetchDropletsCmd : WhichDroplets -> Model -> Cmd Msg
-fetchDropletsCmd whichDroplets model =
-    case model.account of
+fetchDropletsCmd : WhichDroplets -> Maybe Account -> Cmd Msg
+fetchDropletsCmd whichDroplets account =
+    case account of
         Nothing -> Cmd.none
-        Just account ->
+        Just acct ->
             DigitalOcean.getDroplets
-                account.token
+                acct.token
                 (\result -> DropletsReceived result whichDroplets)
 
 initialModel : Model
@@ -516,7 +520,7 @@ dropletsReceived result whichDroplets model =
                                             Nothing -> Just droplets
                                             Just _ -> storage.toDroplets
                                 in
-                                    (Just droplets, storage.toDroplets)
+                                    (Just droplets, toDroplets)
                             ToDroplets ->
                                 (storage.droplets, Just droplets)
                     in
@@ -528,7 +532,11 @@ dropletsReceived result whichDroplets model =
                                     , toDroplets = toDroplets
                                 }
                           }
-                        , Cmd.none
+                        , case whichDroplets of
+                              FromDroplets ->
+                                  fetchDropletsCmd ToDroplets storage.toAccount
+                              ToDroplets ->
+                                  Cmd.none
                         )
                 _ ->
                     ( model, Cmd.none )
@@ -930,23 +938,65 @@ viewCopyDomain model =
             )
         ]
 
+selector : String -> List a -> (a -> String) -> Field -> Html Msg
+selector default list getName field =
+    select []
+        <| List.map (\e ->
+                         let name = getName e
+                         in
+                             option [ value <| name
+                                    , selected <| default == name
+                                    , onClick <| Set field <| name
+                                    ]
+                                    [ text <| name ]
+                    )
+            list
+
+dropletSelector : String -> List Droplet -> Html Msg
+dropletSelector default droplets =
+    selector default droplets .name ToDropletField
+
+accountSelector : String -> List Account -> Html Msg
+accountSelector default accounts =
+    selector default accounts .name ToAccountField
+
+thtdRow : String -> List (Html Msg) -> Html Msg
+thtdRow label values =
+    tr []
+        [ th [] [ text label ]
+        , td [] values
+        ]
+
 viewCopyDomainRows : MoveOrCopyDomainStorage -> Model -> List (Html Msg)
 viewCopyDomainRows storage model =
     let fromAccount = case model.account of
-                          Nothing -> "None"
+                          Nothing -> "<blank>"
                           Just acct -> acct.name
         fromDomain = case model.domain of
-                         Nothing -> "None"
+                         Nothing -> "<blank>"
                          Just domain -> domain.name
+        toAccount = case storage.toAccount of
+                        Nothing -> fromAccount
+                        Just acct -> acct.name
+        toDroplet = case storage.toDroplet of
+                        Nothing -> ""
+                        Just d -> d.name
     in
-        [ tr []
-              [ th [] [ text "From account:" ]
-              , td [] [ text fromAccount ]
-              ]
-        , tr []
-            [ th [] [ text "From domain:" ]
-            , td [] [ text fromDomain ]
-            ]
+        [ thtdRow "From account:" [ text fromAccount ]
+        , thtdRow "From domain:" [ text fromDomain ]
+        , thtdRow "To account:" [ accountSelector toAccount model.accounts ]
+        , thtdRow "To droplet:" [ case storage.toDroplets of
+                                      Nothing -> text "Fetching droplets..."
+                                      Just droplets ->
+                                          dropletSelector toDroplet droplets
+                                ]
+        , thtdRow "To domain:" [ input [ type_ "text"
+                                       , onInput <| Set ToDomainField
+                                       , size 30
+                                       , value storage.toDomainName
+                                       ]
+                                     []
+                               ]
         ]
 
 viewMoveDomain : Model -> Html Msg
