@@ -37,7 +37,8 @@ import Html.Attributes exposing ( align, value, size, autofocus
                                 , name, checked, selected
                                 , colspan, disabled
         )
-import Html.Events exposing (onClick, onInput, onCheck)
+import Html.Events exposing (onClick, onInput, onCheck, on)
+import Json.Decode as JD
 import List.Extra as LE
 import Debug exposing (log)
 import Dict exposing (Dict)
@@ -205,8 +206,7 @@ getInitialMoveDomainState model =
 
 copyDomainUpdater : Updater
 copyDomainUpdater =
-    -- Update updateCopyDomainField commitCopyDomain
-    nullUpdater
+    Update updateCopyDomainField commitCopyDomain
 
 moveDomainUpdater : Updater
 moveDomainUpdater =
@@ -225,6 +225,11 @@ fetchDropletsCmd whichDroplets account =
             DigitalOcean.getDroplets
                 acct.token
                 (\result -> DropletsReceived result whichDroplets)
+
+-- TODO
+computeIpMapCmd : Droplet -> Cmd Msg
+computeIpMapCmd droplet =
+    Cmd.none
 
 initialModel : Model
 initialModel =
@@ -540,6 +545,73 @@ dropletsReceived result whichDroplets model =
                         )
                 _ ->
                     ( model, Cmd.none )
+
+updateCopyDomainField : Field -> String -> Model -> ( Model, Cmd Msg )
+updateCopyDomainField field value model =
+    case model.pageState of
+        MoveOrCopyDomainState storage ->
+            updateMoveOrCopyDomainStorage storage field value model
+        _ ->
+            ( model, Cmd.none )
+
+updateMoveOrCopyDomainStorage : MoveOrCopyDomainStorage -> Field -> String -> Model -> ( Model, Cmd Msg )
+updateMoveOrCopyDomainStorage storage field value model =
+    case field of
+        ToAccountField ->
+            let account = case LE.find (\a -> a.name == value) model.accounts of
+                              Nothing -> Nothing
+                              ja ->
+                                  if model.account == ja then
+                                      Nothing
+                                  else
+                                      ja
+            in                    
+                ( { model
+                      | pageState = MoveOrCopyDomainState
+                                    { storage
+                                        | toAccount = account
+                                        , toDroplets = Nothing
+                                        , toDroplet = Nothing
+                                        , ipMap = Dict.empty
+                                    }
+                  }
+                , case account of
+                      Nothing -> Cmd.none
+                      Just _ ->
+                          fetchDropletsCmd ToDroplets account
+                )
+        ToDropletField ->
+            case storage.toDroplets of
+                Nothing -> ( model, Cmd.none )
+                Just droplets ->
+                    let droplet = LE.find (\a -> a.name == value) droplets
+                    in
+                        ( { model
+                              | pageState = MoveOrCopyDomainState
+                                            { storage | toDroplet = droplet }
+                          }
+                        , case droplet of
+                              Nothing -> Cmd.none
+                              Just drop ->
+                                  computeIpMapCmd drop
+                        )
+
+        ToDomainField ->
+            -- Need to check for duplicates here
+            ( { model
+                  | pageState = MoveOrCopyDomainState
+                                { storage | toDomainName = value }
+              }
+            , Cmd.none
+            )
+        _ ->
+            ( model, Cmd.none )
+
+commitCopyDomain : Bool -> Model -> ( Model, Cmd Msg )
+commitCopyDomain doit model =
+    ( model, Cmd.none )
+
+
 
 -- VIEW
 
@@ -940,17 +1012,17 @@ viewCopyDomain model =
 
 selector : String -> List a -> (a -> String) -> Field -> Html Msg
 selector default list getName field =
-    select []
-        <| List.map (\e ->
-                         let name = getName e
-                         in
-                             option [ value <| name
-                                    , selected <| default == name
-                                    , onClick <| Set field <| name
-                                    ]
-                                    [ text <| name ]
-                    )
-            list
+    let names = List.map getName list
+    in
+        select [ onInput <| Set field
+               ]
+               <| List.map (\name ->
+                                option [ value name
+                                       , selected <| default == name
+                                       ]
+                                [ text name ]
+                           )
+                   names
 
 dropletSelector : String -> List Droplet -> Html Msg
 dropletSelector default droplets =
