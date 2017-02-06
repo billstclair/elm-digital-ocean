@@ -37,7 +37,7 @@ import Html.Attributes exposing ( align, value, size, autofocus
                                 , name, checked, selected
                                 , colspan, disabled
         )
-import Html.Events exposing (onClick, onInput, onCheck, on)
+import Html.Events exposing (onClick, onInput, onCheck)
 import Json.Decode as JD
 import List.Extra as LE
 import Debug exposing (log)
@@ -68,7 +68,6 @@ type Page
     | DomainsPage
     | DomainRecordsPage
     | CopyDomainPage
-    | MoveDomainPage
 
 type alias EditingAccount =
     { oldName : String
@@ -80,8 +79,9 @@ type alias EditingDomain =
     , ip : String
     }
 
-type alias MoveOrCopyDomainStorage =
+type alias CopyDomainStorage =
     { droplets : Maybe (List Droplet)
+    , domainRecords : Maybe (List DomainRecord)
     , toAccount : Maybe Account --Nothing is treated as model.account
     , toDomainName : String
     , toDroplets : Maybe (List Droplet)
@@ -89,10 +89,11 @@ type alias MoveOrCopyDomainStorage =
     , ipMap : Dict String String
     }
 
-initialMoveOrCopyDomainStorage : MoveOrCopyDomainStorage
-initialMoveOrCopyDomainStorage =
+initialCopyDomainStorage : Model -> CopyDomainStorage
+initialCopyDomainStorage model =
     { droplets = Nothing
-    , toAccount = Nothing
+    , domainRecords = Nothing
+    , toAccount = model.account
     , toDomainName = ""
     , toDroplets = Nothing
     , toDroplet = Nothing
@@ -103,7 +104,7 @@ type PageState
     = AccountsState (Maybe EditingAccount)
     | DomainsState (Maybe (List Domain)) (Maybe EditingDomain)
     | DomainRecordsState
-    | MoveOrCopyDomainState MoveOrCopyDomainStorage
+    | CopyDomainState CopyDomainStorage
 
 type Field
     = NameField
@@ -192,26 +193,17 @@ getInitialDomainRecordsState model =
 
 getInitialCopyDomainState : InitialPageStateGetter
 getInitialCopyDomainState model =
-    ( MoveOrCopyDomainState initialMoveOrCopyDomainStorage
+    ( CopyDomainState <| initialCopyDomainStorage model
     , copyDomainUpdater
-    , fetchDropletsCmd FromDroplets model.account
-    )
-
-getInitialMoveDomainState : InitialPageStateGetter
-getInitialMoveDomainState model =
-    ( MoveOrCopyDomainState initialMoveOrCopyDomainStorage
-    , moveDomainUpdater
-    , fetchDropletsCmd FromDroplets model.account
+    , Cmd.batch
+        [ fetchDropletsCmd FromDroplets model.account
+        , fetchDomainRecordsCmd model.account model.domain
+        ]
     )
 
 copyDomainUpdater : Updater
 copyDomainUpdater =
     Update updateCopyDomainField commitCopyDomain
-
-moveDomainUpdater : Updater
-moveDomainUpdater =
-    -- Update updateMoveDomainField commitMoveDomain
-    nullUpdater
 
 type WhichDroplets
     = FromDroplets
@@ -225,6 +217,17 @@ fetchDropletsCmd whichDroplets account =
             DigitalOcean.getDroplets
                 acct.token
                 (\result -> DropletsReceived result whichDroplets)
+
+fetchDomainRecordsCmd : Maybe Account -> Maybe Domain -> Cmd Msg
+fetchDomainRecordsCmd account domain =
+    case account of
+        Nothing -> Cmd.none
+        Just acct ->
+            case domain of
+                Nothing -> Cmd.none
+                Just dom ->
+                    DigitalOcean.getDomainRecords
+                        acct.token dom.name DomainRecordsReceived
 
 -- TODO
 computeIpMapCmd : Droplet -> Cmd Msg
@@ -270,10 +273,10 @@ type Msg = Nop
          | SelectDomain Domain
          | FetchDomains
          | CopyDomain Domain
-         | MoveDomain Domain
          | AccountVerified AccountInfoResult Account (List Account)
          | DomainsReceived DomainsResult
          | DropletsReceived DropletsResult WhichDroplets
+         | DomainRecordsReceived DomainRecordsResult
     
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -307,8 +310,6 @@ update msg model =
                     )
                 CopyDomain domain ->
                     setPage CopyDomainPage { model | domain = Just domain }
-                MoveDomain domain ->
-                    setPage MoveDomainPage { model | domain = Just domain }
                 SelectDomain domain ->
                     ( { model | domain = Just domain }
                     , Cmd.none
@@ -319,6 +320,8 @@ update msg model =
                     domainsReceived domains model
                 DropletsReceived domains whichDroplets ->
                     dropletsReceived domains whichDroplets model
+                DomainRecordsReceived records ->
+                    domainRecordsReceived records model
 
 -- Update Accounts page
 
@@ -505,7 +508,7 @@ domainsReceived result model =
                 _ ->
                     ( model, Cmd.none )
 
--- Update move or copy domains page
+-- Update copy domains page
 
 dropletsReceived : DropletsResult -> WhichDroplets -> Model -> ( Model, Cmd Msg )
 dropletsReceived result whichDroplets model =
@@ -516,7 +519,7 @@ dropletsReceived result whichDroplets model =
             )
         Ok droplets ->
             case model.pageState of
-                MoveOrCopyDomainState storage ->
+                CopyDomainState storage ->
                     let (fromDroplets, toDroplets) =
                         case whichDroplets of
                             FromDroplets ->
@@ -531,7 +534,7 @@ dropletsReceived result whichDroplets model =
                     in
                         ( { model
                               | pageState
-                                = MoveOrCopyDomainState
+                                = CopyDomainState
                                 { storage
                                     | droplets = fromDroplets
                                     , toDroplets = toDroplets
@@ -546,16 +549,35 @@ dropletsReceived result whichDroplets model =
                 _ ->
                     ( model, Cmd.none )
 
+domainRecordsReceived : DomainRecordsResult -> Model -> ( Model, Cmd Msg)
+domainRecordsReceived result model =
+    case result of
+        Err error ->
+            ( { model | message = Just (toString error) }
+            , Cmd.none
+            )
+        Ok records ->
+            case model.pageState of
+                CopyDomainState storage ->
+                    ( { model
+                          | pageState = CopyDomainState
+                                        { storage | domainRecords = Just records
+                                        }
+                      }
+                    , Cmd.none
+                    )
+                _ ->
+                    ( model, Cmd.none )
 updateCopyDomainField : Field -> String -> Model -> ( Model, Cmd Msg )
 updateCopyDomainField field value model =
     case model.pageState of
-        MoveOrCopyDomainState storage ->
-            updateMoveOrCopyDomainStorage storage field value model
+        CopyDomainState storage ->
+            updateCopyDomainStorage storage field value model
         _ ->
             ( model, Cmd.none )
 
-updateMoveOrCopyDomainStorage : MoveOrCopyDomainStorage -> Field -> String -> Model -> ( Model, Cmd Msg )
-updateMoveOrCopyDomainStorage storage field value model =
+updateCopyDomainStorage : CopyDomainStorage -> Field -> String -> Model -> ( Model, Cmd Msg )
+updateCopyDomainStorage storage field value model =
     case field of
         ToAccountField ->
             let account = case LE.find (\a -> a.name == value) model.accounts of
@@ -567,7 +589,7 @@ updateMoveOrCopyDomainStorage storage field value model =
                                       ja
             in                    
                 ( { model
-                      | pageState = MoveOrCopyDomainState
+                      | pageState = CopyDomainState
                                     { storage
                                         | toAccount = account
                                         , toDroplets = Nothing
@@ -587,7 +609,7 @@ updateMoveOrCopyDomainStorage storage field value model =
                     let droplet = LE.find (\a -> a.name == value) droplets
                     in
                         ( { model
-                              | pageState = MoveOrCopyDomainState
+                              | pageState = CopyDomainState
                                             { storage | toDroplet = droplet }
                           }
                         , case droplet of
@@ -599,7 +621,7 @@ updateMoveOrCopyDomainStorage storage field value model =
         ToDomainField ->
             -- Need to check for duplicates here
             ( { model
-                  | pageState = MoveOrCopyDomainState
+                  | pageState = CopyDomainState
                                 { storage | toDomainName = value }
               }
             , Cmd.none
@@ -642,18 +664,12 @@ copyDomainPage =
     PageProperties
         CopyDomainPage "Copy Domain" getInitialCopyDomainState viewCopyDomain
 
-moveDomainPage : PageProperties
-moveDomainPage =
-    PageProperties
-        MoveDomainPage "Move Domain" getInitialMoveDomainState viewMoveDomain
-
 pages : List PageProperties
 pages =
     [ accountsPage
     , domainsPage
     , domainRecordsPage
     , copyDomainPage
-    , moveDomainPage
     ]
 
 navigationPages : List PageProperties
@@ -978,9 +994,6 @@ renderDomainRow domain model =
         , td [] [ text <| toString domain.ttl ]
         , td [] [ button [ onClick <| CopyDomain domain ]
                       [ text "Copy" ]
-                , text nbsp
-                , button [ onClick <| MoveDomain domain ]
-                      [ text "Move" ]
                 ]
         ]
 
@@ -994,35 +1007,45 @@ viewCopyDomain model =
     div []
         [ labeledTableStyle
         , h3 [ class S.Centered ] [ text "Copy Domain" ]
-        , table [ class S.AutoMargins
+        , case model.pageState of
+              CopyDomainState storage ->
+                  viewCopyDomainBody storage model
+              _ ->
+                  p [] [ text "Bad storage. Shouldn't happen." ]
+        ]
+
+viewCopyDomainBody : CopyDomainStorage -> Model -> Html Msg
+viewCopyDomainBody storage model =
+    div []
+        [ table [ class S.AutoMargins
                 , Html.Attributes.style [ ( "th:text-align", "right" )
                                         , ( "td:text-align", "left" )
                                         ]
                 ]
-            ( case model.pageState of
-                  MoveOrCopyDomainState storage ->
-                      viewCopyDomainRows storage model
-                  _ ->
-                      [ tr []
-                            [ td [] [ text "Bad storage. Shouldn't happen." ]
-                            ]
-                      ]
-            )
+              <| viewCopyDomainRows storage model
+        , case storage.domainRecords of
+              Nothing -> p [] [ text "Fetching domain records..." ]
+              Just records ->
+                  table []
+                      <| List.map
+                          (\r -> tr []
+                               [ td [] [ text <| toString r ]
+                               ]
+                          )
+                          records
         ]
 
 selector : String -> List a -> (a -> String) -> Field -> Html Msg
 selector default list getName field =
-    let names = List.map getName list
-    in
-        select [ onInput <| Set field
-               ]
-               <| List.map (\name ->
-                                option [ value name
-                                       , selected <| default == name
-                                       ]
-                                [ text name ]
-                           )
-                   names
+    select [ onInput <| Set field
+           ]
+    <| List.map (\name ->
+                     option [ value name
+                            , selected <| default == name
+                            ]
+                     [ text name ]
+                )
+        <| List.map getName list
 
 dropletSelector : String -> List Droplet -> Html Msg
 dropletSelector default droplets =
@@ -1039,7 +1062,7 @@ thtdRow label values =
         , td [] values
         ]
 
-viewCopyDomainRows : MoveOrCopyDomainStorage -> Model -> List (Html Msg)
+viewCopyDomainRows : CopyDomainStorage -> Model -> List (Html Msg)
 viewCopyDomainRows storage model =
     let fromAccount = case model.account of
                           Nothing -> "<blank>"
@@ -1070,7 +1093,3 @@ viewCopyDomainRows storage model =
                                      []
                                ]
         ]
-
-viewMoveDomain : Model -> Html Msg
-viewMoveDomain model =
-    text "Move Domain not yet implemented."
