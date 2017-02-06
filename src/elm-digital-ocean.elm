@@ -16,7 +16,7 @@ import DigitalOceanAccounts exposing ( Account )
 import DigitalOcean exposing ( AccountInfo, AccountInfoResult
                              , Domain, DomainsResult
                              , DomainRecord, DomainRecordsResult
-                             , Droplet, DropletsResult
+                             , Droplet, DropletsResult, Network
                              )
 import Style as S exposing ( style, SClass, SId, id, class
                            , labeledTableStyle
@@ -539,6 +539,13 @@ dropletsReceived result whichDroplets model =
                                 { storage
                                     | droplets = fromDroplets
                                     , toDroplets = toDroplets
+                                    , toDroplet = case storage.toDroplet of
+                                                      Nothing ->
+                                                          case toDroplets of
+                                                              Nothing -> Nothing
+                                                              Just ds ->
+                                                                  List.head ds
+                                                      Just d -> Just d
                                 }
                           }
                         , case whichDroplets of
@@ -1103,6 +1110,8 @@ domainRecordRows record =
                         ]
             in
                 [ firstRow
+                -- This undisplayed row makes the additional properties row
+                -- have the same background color as the main properties row.
                 , tr [ class S.DisplayNone ]
                     [ td [ colspan 3 ] []
                     ]
@@ -1142,6 +1151,32 @@ thtdRow label values =
         , td [] values
         ]
 
+publicNetworkIps : List Network -> List String
+publicNetworkIps networks =
+    List.map .ip
+        <| List.filter (\n -> "public" == n.networkType) networks
+
+renderIps : List String -> List String -> List (Html msg)
+renderIps a aaaa =
+    let (isA, aStr) = if a == [] then
+                          (False, "")
+                      else
+                          (True, "A: " ++ (String.concat <| List.intersperse ", " a))
+        (isAaaa, aaaaStr) = if aaaa == [] then
+                          (False, "")
+                      else
+                          (True, "AAAA: " ++ (String.concat <| List.intersperse ", " aaaa))
+    in
+        if isA then
+            if isAaaa then
+                [ text aStr, br, text aaaaStr ]
+            else
+                [ text aStr ]
+        else if isAaaa then
+            [ text aaaaStr ]
+        else
+            []
+
 viewCopyDomainRows : CopyDomainStorage -> Model -> List (Html Msg)
 viewCopyDomainRows storage model =
     let fromAccount = case model.account of
@@ -1156,6 +1191,15 @@ viewCopyDomainRows storage model =
         toDroplet = case storage.toDroplet of
                         Nothing -> ""
                         Just d -> d.name
+        (a, aaaa) = case storage.toDroplet of
+                        Nothing -> ([], [])
+                        Just d ->
+                            let networks = d.networks
+                            in
+                                ( publicNetworkIps networks.v4
+                                , publicNetworkIps networks.v6
+                                )
+        ipHtml = renderIps a aaaa
     in
         [ thtdRow "From account:" [ text fromAccount ]
         , thtdRow "From domain:" [ text fromDomain ]
@@ -1165,6 +1209,9 @@ viewCopyDomainRows storage model =
                                       Just droplets ->
                                           dropletSelector toDroplet droplets
                                 ]
+        , tr [] [ td [] []
+                , td [] ipHtml
+                ]
         , thtdRow "To domain:" [ input [ type_ "text"
                                        , onInput <| Set ToDomainField
                                        , size 30
