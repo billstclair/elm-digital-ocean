@@ -11,10 +11,11 @@
 ----------------------------------------------------------------------
 
 module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
-                             , Domain, DomainsResult, DomainResult
-                             , getDomains, getDomain
+                             , Domain, DomainsResult, DomainResult, NewDomain
+                             , getDomains, getDomain, deleteDomain, createDomain
                              , DomainRecord, DomainRecordsResult, DomainRecordResult
-                             , getDomainRecords, getDomainRecord
+                             , getDomainRecords, getDomainRecord, createDomainRecord
+                             , updateDomainRecord, deleteDomainRecord
                              , Droplet, Networks, Network, DropletsResult
                              , getDroplets
                              )
@@ -84,6 +85,46 @@ makeGetRequest token url decoder =
 sendGetRequest : (Result Error a -> msg) -> String -> String -> Decoder a -> Cmd msg
 sendGetRequest resultToMsg token url decoder =
     Http.send resultToMsg <| makeGetRequest token url decoder
+
+---
+--- Generic HTTP POST
+---
+
+makePostRequest : String -> String -> Value -> Decoder a -> Http.Request a
+makePostRequest token url body decoder =
+    Http.request
+        { method = "POST"
+        , headers = getRequestHeaders token
+        , url = url
+        , body = Http.jsonBody body
+        , expect = Http.expectJson decoder
+        , timeout = Nothing
+        , withCredentials = False
+        }
+
+sendPostRequest : (Result Error a -> msg) -> String -> String -> Value -> Decoder a -> Cmd msg
+sendPostRequest resultToMsg token url value decoder =
+    Http.send resultToMsg <| makePostRequest token url value decoder
+
+---
+--- Generic HTTP DELETE
+---
+
+makeDeleteRequest : String -> String -> Decoder a -> Http.Request a
+makeDeleteRequest token url decoder =
+    Http.request
+        { method = "DELETE"
+        , headers = getRequestHeaders token
+        , url = url
+        , body = Http.emptyBody
+        , expect = Http.expectJson decoder
+        , timeout = Nothing
+        , withCredentials = False
+        }
+
+sendDeleteRequest : (Result Error a -> msg) -> String -> String -> Decoder a -> Cmd msg
+sendDeleteRequest resultToMsg token url decoder =
+    Http.send resultToMsg <| makeDeleteRequest token url decoder
 
 ---
 --- Accounts
@@ -194,7 +235,55 @@ getDomain : String -> String -> (DomainResult -> msg) -> Cmd msg
 getDomain token domain resultToMsg =
     let url = domainUrl domain
     in
-        sendGetRequest (\res -> resultToMsg res) token url domainDecoder
+        sendGetRequest resultToMsg token url domainDecoder
+
+emptyDecoder : Decoder ()
+emptyDecoder =
+    JD.succeed ()
+
+type alias DeleteResult =
+    Result Error ()
+
+deleteDomain : String -> String -> (DeleteResult -> msg) -> Cmd msg
+deleteDomain token domain resultToMsg =
+    let url = domainUrl domain
+    in
+        sendDeleteRequest resultToMsg token url emptyDecoder
+
+type alias NewDomain =
+    { name : String
+    , ip : String
+    }
+
+newDomainEncoder : NewDomain -> Value
+newDomainEncoder domain =
+    JE.object
+        [ ("name", JE.string domain.name)
+        , ("ip_address", JE.string domain.ip)
+        ]
+
+domainResToDomain : Result Error DomainRes -> DomainResult
+domainResToDomain res =
+    case res of
+        Err error -> Err error
+        Ok domainRes ->
+            Ok domainRes.domain
+
+type alias DomainRes =
+    { domain : Domain
+    }
+
+domainResDecoder : Decoder DomainRes
+domainResDecoder =
+    JD.map
+        DomainRes
+        (field "domain" domainDecoder)
+
+createDomain : String -> NewDomain -> (DomainResult -> msg) -> Cmd msg
+createDomain token domain resultToMsg =
+    sendPostRequest
+        (\res -> resultToMsg <| domainResToDomain res)
+        token domainsUrl (newDomainEncoder domain) domainResDecoder
 
 ---
 --- Domain Records
@@ -255,6 +344,44 @@ getDomainRecord : String -> String -> Int -> (DomainRecordResult -> msg) -> Cmd 
 getDomainRecord token domain id resultToMsg =
     sendGetRequest
         resultToMsg token (domainRecordUrl domain id) domainRecordDecoder
+
+maybeIntEncoder : Maybe Int -> Value
+maybeIntEncoder maybeInt =
+    case maybeInt of
+        Nothing -> JE.null
+        Just int -> JE.int int
+
+newDomainRecordEncoder : DomainRecord -> Value
+newDomainRecordEncoder record =
+    JE.object
+        [ ("type", JE.string record.recordType)
+        , ("name", JE.string record.name)
+        , ("data", JE.string record.data)
+        , ("priority", maybeIntEncoder record.priority)
+        , ("port", maybeIntEncoder record.srvPort)
+        , ("weight", maybeIntEncoder record.srvWeight)
+        ]
+
+-- The domain.id field is ignored
+createDomainRecord : String -> String -> DomainRecord -> (DomainRecordResult -> msg) -> Cmd msg
+createDomainRecord token domain record resultToMsg =
+    sendPostRequest
+        resultToMsg
+        token (domainRecordsUrl domain)
+        (newDomainRecordEncoder record) domainRecordDecoder
+
+updateDomainRecord : String -> String -> DomainRecord -> (DomainRecordResult -> msg) -> Cmd msg
+updateDomainRecord token domain record resultToMsg =
+    sendPostRequest
+        resultToMsg
+        token (domainRecordUrl domain record.id)
+        (newDomainRecordEncoder record) domainRecordDecoder
+
+deleteDomainRecord : String -> String -> Int -> (DeleteResult -> msg) -> Cmd msg
+deleteDomainRecord token domain id resultToMsg =
+    let url = domainRecordUrl domain id
+    in
+        sendDeleteRequest resultToMsg token url emptyDecoder
 
 ---
 --- Droplets - Just enough to get their IP addresses
