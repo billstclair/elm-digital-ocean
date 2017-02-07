@@ -716,6 +716,10 @@ emptyNetworks : Networks -> List Network
 emptyNetworks _ =
     []
 
+findPublicIpIndex : String -> List Network -> Maybe Int
+findPublicIpIndex address networks =
+    LE.findIndex (\ip -> ip == address) <| publicNetworkIps networks
+
 findNetworkAddress : String -> (List Droplet) -> ( Networks -> List Network, Int )
 findNetworkAddress address droplets =
     case droplets of
@@ -723,16 +727,10 @@ findNetworkAddress address droplets =
         droplet :: tail ->
             let networks = droplet.networks
             in
-                case LE.findIndex
-                    (\ip -> ip == address)
-                    <| publicNetworkIps networks.v4
-                of
+                case findPublicIpIndex address networks.v4 of
                     Just idx -> (.v4, idx)
                     Nothing ->
-                        case LE.findIndex
-                            (\ip -> ip == address)
-                            <| publicNetworkIps networks.v6
-                        of
+                        case findPublicIpIndex address networks.v6 of
                             Just idx -> (.v6, idx)
                             Nothing -> ( emptyNetworks, -1 )                        
 
@@ -1286,7 +1284,10 @@ viewCopyDomainRows storage model =
                                           dropletSelector toDroplet droplets
                                 ]
         , tr [] [ td [] []
-                , td [] ipHtml
+                , td [] ( case ipHtml of
+                              [] -> [ text nbsp ]
+                              _ -> ipHtml
+                        )
                 ]
         , thtdRow "To domain:" [ input [ type_ "text"
                                        , onInput <| Set ToDomainField
