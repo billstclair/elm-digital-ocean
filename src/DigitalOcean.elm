@@ -15,7 +15,7 @@ module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
                              , getDomains, getDomain
                              , DomainRecord, DomainRecordsResult, DomainRecordResult
                              , getDomainRecords, getDomainRecord
-                             , Droplet, Network, DropletsResult
+                             , Droplet, Networks, Network, DropletsResult
                              , getDroplets
                              )
 

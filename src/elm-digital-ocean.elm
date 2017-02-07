@@ -16,7 +16,7 @@ import DigitalOceanAccounts exposing ( Account )
 import DigitalOcean exposing ( AccountInfo, AccountInfoResult
                              , Domain, DomainsResult
                              , DomainRecord, DomainRecordsResult
-                             , Droplet, DropletsResult, Network
+                             , Droplet, DropletsResult, Networks, Network
                              )
 import Style as S exposing ( style, SClass, SId, id, class
                            , labeledTableStyle
@@ -81,23 +81,23 @@ type alias EditingDomain =
 
 type alias CopyDomainStorage =
     { droplets : Maybe (List Droplet)
+    , originalDomainRecords : Maybe (List DomainRecord)
     , domainRecords : Maybe (List DomainRecord)
     , toAccount : Maybe Account --Nothing is treated as model.account
     , toDomainName : String
     , toDroplets : Maybe (List Droplet)
     , toDroplet : Maybe Droplet
-    , ipMap : Dict String String
     }
 
 initialCopyDomainStorage : Model -> CopyDomainStorage
 initialCopyDomainStorage model =
     { droplets = Nothing
+    , originalDomainRecords = Nothing
     , domainRecords = Nothing
     , toAccount = model.account
     , toDomainName = ""
     , toDroplets = Nothing
     , toDroplet = Nothing
-    , ipMap = Dict.empty
     }
 
 type PageState
@@ -229,11 +229,6 @@ fetchDomainRecordsCmd account domain =
                 Just dom ->
                     DigitalOcean.getDomainRecords
                         acct.token dom.name DomainRecordsReceived
-
--- TODO
-computeIpMapCmd : Droplet -> Cmd Msg
-computeIpMapCmd droplet =
-    Cmd.none
 
 initialModel : Model
 initialModel =
@@ -532,20 +527,25 @@ dropletsReceived result whichDroplets model =
                                     (Just droplets, toDroplets)
                             ToDroplets ->
                                 (storage.droplets, Just droplets)
+                        toDroplet = case storage.toDroplet of
+                                        Nothing ->
+                                            case toDroplets of
+                                                Nothing -> Nothing
+                                                Just ds ->
+                                                    List.head ds
+                                        Just d -> Just d
+                        storage2 = { storage
+                                       | droplets = fromDroplets
+                                       , toDroplets = toDroplets
+                                       , toDroplet = toDroplet
+                                   }
                     in
                         ( { model
                               | pageState
                                 = CopyDomainState
-                                { storage
-                                    | droplets = fromDroplets
-                                    , toDroplets = toDroplets
-                                    , toDroplet = case storage.toDroplet of
-                                                      Nothing ->
-                                                          case toDroplets of
-                                                              Nothing -> Nothing
-                                                              Just ds ->
-                                                                  List.head ds
-                                                      Just d -> Just d
+                                { storage2
+                                    | domainRecords
+                                      = domainRecordMagic toDroplet storage
                                 }
                           }
                         , case whichDroplets of
@@ -569,7 +569,9 @@ domainRecordsReceived result model =
                 CopyDomainState storage ->
                     ( { model
                           | pageState = CopyDomainState
-                                        { storage | domainRecords = Just records
+                                        { storage
+                                            | originalDomainRecords = Just records
+                                            , domainRecords = Just records
                                         }
                       }
                     , Cmd.none
@@ -588,26 +590,38 @@ updateCopyDomainStorage : CopyDomainStorage -> Field -> String -> Model -> ( Mod
 updateCopyDomainStorage storage field value model =
     case field of
         ToAccountField ->
-            let account = case LE.find (\a -> a.name == value) model.accounts of
-                              Nothing -> Nothing
-                              ja ->
-                                  if model.account == ja then
-                                      Nothing
-                                  else
-                                      ja
+            let (account, toDroplets, toDroplet)
+                    = case LE.find (\a -> a.name == value) model.accounts of
+                          Nothing ->
+                              ( Nothing, Nothing, Nothing )
+                          Just acct ->
+                              if (case model.account of
+                                      Nothing -> False
+                                      Just ma -> (ma.name == acct.name)
+                                 )
+                              then
+                                  ( Just acct
+                                  , storage.droplets
+                                  , case storage.droplets of
+                                        Nothing -> Nothing
+                                        Just ds -> List.head ds
+                                  )
+                              else
+                                  ( Just acct , Nothing , Nothing )
             in                    
                 ( { model
                       | pageState = CopyDomainState
                                     { storage
                                         | toAccount = account
-                                        , toDroplets = Nothing
-                                        , toDroplet = Nothing
-                                        , ipMap = Dict.empty
+                                        , toDroplets = toDroplets
+                                        , toDroplet = toDroplet
+                                        , domainRecords
+                                          = domainRecordMagic toDroplet storage
                                     }
                   }
-                , case account of
-                      Nothing -> Cmd.none
-                      Just _ ->
+                , case toDroplets of
+                      Just _ -> Cmd.none
+                      Nothing ->
                           fetchDropletsCmd ToDroplets account
                 )
         ToDropletField ->
@@ -615,15 +629,16 @@ updateCopyDomainStorage storage field value model =
                 Nothing -> ( model, Cmd.none )
                 Just droplets ->
                     let droplet = LE.find (\a -> a.name == value) droplets
+                        domainRecords = domainRecordMagic droplet storage
                     in
                         ( { model
                               | pageState = CopyDomainState
-                                            { storage | toDroplet = droplet }
+                                            { storage
+                                                | toDroplet = droplet
+                                                , domainRecords = domainRecords
+                                            }
                           }
-                        , case droplet of
-                              Nothing -> Cmd.none
-                              Just drop ->
-                                  computeIpMapCmd drop
+                        , Cmd.none
                         )
 
         ToDomainField ->
@@ -653,6 +668,73 @@ updateCopyDomainStorage storage field value model =
                     )
         _ ->
             ( model, Cmd.none )
+
+-- Replace the A & AAAA values in storage.originalDomainRecords
+-- by changing values found in the networks of storage.droplets
+-- to the corresponding values in the networks of toDroplet
+-- TODO
+domainRecordMagic : Maybe Droplet -> CopyDomainStorage -> Maybe (List DomainRecord)
+domainRecordMagic toDroplet storage =
+    case storage.originalDomainRecords of
+        Nothing -> Nothing
+        Just drs ->
+            case storage.droplets of
+                Nothing -> Just drs
+                Just droplets ->
+                    case toDroplet of
+                        Nothing -> Just drs
+                        Just droplet ->
+                            let updater = (\dr ->
+                                            updateDomainRecord
+                                               dr droplets droplet
+                                          )
+                            in
+                                Just <| List.map updater drs
+
+updateDomainRecord : DomainRecord -> (List Droplet) -> Droplet -> DomainRecord
+updateDomainRecord record droplets droplet =
+    if not (List.member record.recordType updateableRecordTypes) then
+        record
+    else
+        let (accessor, index) = findNetworkAddress record.data droplets
+        in
+            if index < 0 then
+                record
+            else
+                let ips = publicNetworkIps <| accessor droplet.networks
+                    idx = min index <| (List.length ips) - 1
+                in
+                    if idx < 0 then
+                        record
+                    else
+                        case LE.getAt idx ips of
+                            Nothing -> record
+                            Just data ->
+                                { record | data = data }
+
+emptyNetworks : Networks -> List Network
+emptyNetworks _ =
+    []
+
+findNetworkAddress : String -> (List Droplet) -> ( Networks -> List Network, Int )
+findNetworkAddress address droplets =
+    case droplets of
+        [] -> ( emptyNetworks, -1 )
+        droplet :: tail ->
+            let networks = droplet.networks
+            in
+                case LE.findIndex
+                    (\ip -> ip == address)
+                    <| publicNetworkIps networks.v4
+                of
+                    Just idx -> (.v4, idx)
+                    Nothing ->
+                        case LE.findIndex
+                            (\ip -> ip == address)
+                            <| publicNetworkIps networks.v6
+                        of
+                            Just idx -> (.v6, idx)
+                            Nothing -> ( emptyNetworks, -1 )                        
 
 commitCopyDomain : Bool -> Model -> ( Model, Cmd Msg )
 commitCopyDomain doit model =
