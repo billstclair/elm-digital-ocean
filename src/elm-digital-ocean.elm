@@ -42,6 +42,7 @@ import Json.Decode as JD
 import List.Extra as LE
 import Debug exposing (log)
 import Dict exposing (Dict)
+import Task
 
 {-   No ports yet
 -- (key, value)
@@ -262,6 +263,7 @@ init =
 -- UPDATE
 
 type Msg = Nop
+         | ErrorMessage String
          | SetPage Page
          | Set Field String
          | Commit
@@ -288,6 +290,10 @@ update msg model =
             case msg of
                 Nop ->
                     ( model, Cmd.none )
+                ErrorMessage message ->
+                    ( { model | message = Just message }
+                    , Cmd.none
+                    )
                 SetPage page ->
                     setPage page model
                 Set field string ->
@@ -349,7 +355,8 @@ setPage page model =
         (state, updater, cmd) = props.initialStateGetter model
     in
         ( { model
-              | page = page
+              | message = Nothing
+              , page = page
               , pageState = state
               , updater = updater
           }
@@ -706,7 +713,6 @@ copyDomainComplete account domain model =
         { model
             | account = Just account
             , domain = Just domain
-            , message = Nothing
         }
 
 -- Replace the A & AAAA values in storage.originalDomainRecords
@@ -781,9 +787,9 @@ emptyAccount =
     , info = Nothing
     }
 
-copyDomainStuff : Model -> (Bool, CommitType, List DomainRecord, Account, String)
+copyDomainStuff : Model -> (Bool, CommitType, Account, List DomainRecord, Account, String)
 copyDomainStuff model =
-    let no = (False, Copy, [], emptyAccount, "")
+    let no = (False, Copy, emptyAccount, [], emptyAccount, "")
     in
         case model.pageState of
             CopyDomainState storage ->
@@ -801,6 +807,7 @@ copyDomainStuff model =
                                         Just toAccount ->
                                             ( domainName /= ""
                                             , copyType
+                                            , fromAccount
                                             , records
                                             , toAccount
                                             , domainName
@@ -809,7 +816,7 @@ copyDomainStuff model =
 
 commitCopyDomain : Bool -> Model -> ( Model, Cmd Msg )
 commitCopyDomain doit model =
-    let (doit, commitType, domainRecords, toAccount, domainName)
+    let (doit, commitType, fromAccount, domainRecords, toAccount, domainName)
             = copyDomainStuff model
     in
         if not doit then
@@ -821,17 +828,8 @@ commitCopyDomain doit model =
                                Overwrite -> doOverwriteDomain
             in
                 ( model
-                , operator domainRecords toAccount domainName
+                , operator fromAccount domainRecords toAccount domainName
                 )
-
-firstIp : List DomainRecord -> String
-firstIp records =
-    case LE.find (\r -> r.recordType == "A") records of
-        Just record -> record.data
-        Nothing ->
-            case LE.find (\r -> r.recordType == "AAAA") records of
-                Just record -> record.data
-                Nothing -> "127.0.0.1"
 
 copyDomainRecords : List DomainRecord -> Account -> Domain -> Model -> (Model, Cmd Msg)
 copyDomainRecords records account domain model =
@@ -850,24 +848,37 @@ copyDomainRecords records account domain model =
                     account.token domain.name record toMsg
                 )
 
+msgToCmd : Msg -> Cmd Msg
+msgToCmd msg =
+    Task.perform identity <| Task.succeed msg
+
 -- This process could leave the domain partially populated.
 -- Should probably delete it in that case, so the user can retry
 -- For doMoveDomain, however, the old domain is gone, so what
 -- we've got in memory is the only record.
-doCopyDomain : List DomainRecord -> Account -> String -> Cmd Msg
-doCopyDomain domainRecords account domainName =
-    let newDomain = { name = domainName
-                    , ip = firstIp domainRecords
-                    }
-        toMsg = (\res ->
-                     case res of
-                         Err error -> CopyDomainError error
-                         Ok domain ->
-                             CopyDomainRecords
-                                 domainRecords account domain
-                )
+-- It probably won't happen in practice, so I'm not going to worry about it.
+doCopyDomain : Account -> List DomainRecord -> Account -> String -> Cmd Msg
+doCopyDomain _ domainRecords account domainName =
+    let aRecord = LE.find (\a -> a.recordType == "A") domainRecords
     in
-        DigitalOcean.createDomain account.token newDomain toMsg
+        case aRecord of
+            Nothing ->
+                msgToCmd <| ErrorMessage "No A record. Can't create domain."
+            Just record ->
+                let newDomain = { name = domainName
+                                , ip = record.data
+                                }
+                    toMsg = (\res ->
+                                 case res of
+                                     Err error -> CopyDomainError error
+                                     Ok domain ->
+                                       -- We want to skip the first A or AAAA record.
+                                       -- It's already there from the create.
+                                       CopyDomainRecords
+                                           domainRecords account domain
+                            )
+                in
+                    DigitalOcean.createDomain account.token newDomain toMsg
 
 doMoveDomain = doCopyDomain
 doOverwriteDomain = doCopyDomain
