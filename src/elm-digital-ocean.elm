@@ -268,6 +268,7 @@ type Msg = Nop
          | Abort
          | EditAccount Account
          | NewAccount
+         | ShowDomains Account
          | SelectAccount Account
          | SelectDomain Domain
          | FetchDomains
@@ -296,6 +297,13 @@ update msg model =
                     setAccountPageState account model
                 NewAccount ->
                     setAccountPageState blankAccount model
+                ShowDomains account ->
+                    let m = { model
+                                | account = Just account
+                                , domain = Nothing
+                            }
+                    in
+                        setPage DomainsPage m
                 SelectAccount account ->
                     ( { model
                           | account = Just account
@@ -640,7 +648,6 @@ updateCopyDomainStorage storage field value model =
                                             { storage
                                                 | toDroplet = droplet
                                                 , domainRecords = domainRecords
-                                                , verifyDelete = False
                                             }
                           }
                         , Cmd.none
@@ -950,8 +957,13 @@ renderAccountRow account isEditing isNew isChecked oldName =
                                else
                                    text nbsp
                       else
-                          button  [ onClick <| EditAccount account ]
-                          [ text "Edit" ]
+                          span []
+                              [ button  [ onClick <| EditAccount account ]
+                                    [ text "Edit" ]
+                              , text nbsp
+                              , button [ onClick <| ShowDomains account ]
+                                    [ text "Show Domains" ]
+                              ]
                     ]
             ]
     , tr [] [ td [ colspan 3 ]
@@ -1044,6 +1056,9 @@ viewDomains model =
                 , p []
                     [ button [ onClick FetchDomains ]
                           [ text "Refresh" ]
+                    , text nbsp
+                    , button [ onClick <| SetPage AccountsPage ]
+                        [ text "Cancel" ]
                     ]
                 , case domains of
                       Nothing -> text ""
@@ -1138,11 +1153,12 @@ viewCopyDomainBody storage model =
         [ table [ class S.AutoMargins
                 ]
               <| viewCopyDomainRows storage model
-        , case storage.domainRecords of
-              Nothing -> p [] [ text "Fetching domain records..." ]
-              Just records ->
-                  table [ class S.PrettyTable
-                        , class S.AutoMargins ]
+        , p []
+            [ case storage.domainRecords of
+                  Nothing -> text "Fetching domain records..."
+                  Just records ->
+                      table [ class S.PrettyTable
+                            , class S.AutoMargins ]
                       ( List.append
                             [ tr []
                                   [ th [] [ text "Type" ]
@@ -1152,6 +1168,7 @@ viewCopyDomainBody storage model =
                             ]
                             <| List.concatMap domainRecordRows records
                       )
+            ]
         ]
 
 truncate : Int -> String ->String
@@ -1266,11 +1283,11 @@ renderIps a aaaa =
 
 overwriteDomainMessage : String
 overwriteDomainMessage =
-    "Clicking the \"Overwrite Domain\" button will overwrite the domain. Do you really want to do that?"
+    "Clicking the \"Overwrite Domain\" button will overwrite the domain."
 
 moveDomainMessage : String
 moveDomainMessage =
-    "Clicking the \"Move Domain\" button will delete the domain from the \"From account\" and add it to the \"To account\". Do you really want to do that?"
+    "Clicking the \"Move Domain\" button will move the domain to the \"To account\"."
 
 isSameAccount : Maybe Account -> Maybe Account -> Bool
 isSameAccount acct1 acct2 =
@@ -1307,7 +1324,12 @@ copyDomainVerificationRows storage model =
         html = if not showit then
                    []
                else
-                   [ tr [] [ td [ colspan 2 ] [ text message ] ]
+                   [ tr [] [ td [ colspan 2 ]
+                                 [ text message
+                                 , br
+                                 , text "Do you really want to do that?"
+                                 ]
+                           ]
                    , tr [ class S.DisplayNone ]
                        [ td [ colspan 2 ] [] ]
                    , thtdRow
@@ -1321,7 +1343,7 @@ copyDomainVerificationRows storage model =
                                  , checked storage.verifyDelete
                                  ]
                                []
-                         , text "Yes"
+                         , text "Yes. Do it!"
                          ]
                    ]
     in
@@ -1385,6 +1407,9 @@ viewCopyDomainRows storage model =
                                   else
                                       "Copy Domain"
                         ]
+                  , text nbsp
+                  , button [ onClick <| SetPage DomainsPage ]
+                      [ text "Cancel" ]
                   ]
               ]
               checkRows
