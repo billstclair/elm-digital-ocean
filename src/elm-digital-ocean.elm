@@ -831,22 +831,30 @@ commitCopyDomain doit model =
                 , operator fromAccount domainRecords toAccount domainName
                 )
 
+ignoredDomainRecordTypes : List String
+ignoredDomainRecordTypes =
+    [ "NS"
+    ]
+
 copyDomainRecords : List DomainRecord -> Account -> Domain -> Model -> (Model, Cmd Msg)
 copyDomainRecords records account domain model =
     case records of
         [] -> copyDomainComplete account domain model
         record :: tail ->
-            let toMsg = (\res ->
-                             case res of
-                                 Err error -> CopyDomainError error
-                                 Ok _ ->
-                                     CopyDomainRecords tail account domain
-                        )
-            in
-                ( model
-                , DigitalOcean.createDomainRecord
-                    account.token domain.name record toMsg
-                )
+            if List.member record.recordType ignoredDomainRecordTypes then
+                copyDomainRecords tail account domain model
+            else
+                let toMsg = (\res ->
+                                 case res of
+                                     Err error -> CopyDomainError error
+                                     Ok _ ->
+                                         CopyDomainRecords tail account domain
+                            )
+                in
+                    ( model
+                    , DigitalOcean.createDomainRecord
+                        account.token domain.name record toMsg
+                    )
 
 msgToCmd : Msg -> Cmd Msg
 msgToCmd msg =
@@ -868,14 +876,14 @@ doCopyDomain _ domainRecords account domainName =
                 let newDomain = { name = domainName
                                 , ip = record.data
                                 }
+                    -- The first A record is added by createDomain()
+                    records = LE.remove record domainRecords
                     toMsg = (\res ->
                                  case res of
                                      Err error -> CopyDomainError error
                                      Ok domain ->
-                                       -- We want to skip the first A or AAAA record.
-                                       -- It's already there from the create.
                                        CopyDomainRecords
-                                           domainRecords account domain
+                                           records account domain
                             )
                 in
                     DigitalOcean.createDomain account.token newDomain toMsg
@@ -1190,12 +1198,15 @@ viewDomains model =
                           case model.domain of
                               Nothing -> text ""
                               Just dom ->
-                                  div []
-                                      [ h3 [ class S.Centered ]
-                                            [ text "Zone File" ]
-                                      , pre [ class S.AlignLeft ]
-                                          [ text dom.zoneFile ]
-                                      ]
+                                  case dom.zoneFile of
+                                      Nothing -> div [] []
+                                      Just zoneFile ->
+                                          div []
+                                              [ h3 [ class S.Centered ]
+                                                    [ text "Zone File" ]
+                                              , pre [ class S.AlignLeft ]
+                                                  [ text zoneFile ]
+                                              ]
                 ]
             state ->
                 [ text ("Bad pageState: " ++ (toString state))

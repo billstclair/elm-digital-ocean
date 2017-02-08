@@ -24,6 +24,7 @@ module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
 import Json.Decode as JD exposing (field, Decoder)
 import Json.Encode as JE exposing (Value)
 import Http exposing (Error)
+import Debug exposing (log)
 
 baseUrl : String
 baseUrl =
@@ -191,8 +192,8 @@ getAccount token resultToMsg =
 
 type alias Domain =
     { name : String
-    , ttl : Int
-    , zoneFile : String
+    , ttl : Maybe Int
+    , zoneFile : Maybe String
     }
 
 type alias DomainsRes =
@@ -204,8 +205,8 @@ domainDecoder =
     JD.map3
         Domain
         (field "name" JD.string)
-        (field "ttl" JD.int)
-        (field "zone_file" JD.string)
+        (field "ttl" <| JD.nullable JD.int)
+        (field "zone_file" <| JD.nullable JD.string)
 
 domainsResDecoder : Decoder DomainsRes
 domainsResDecoder =
@@ -300,6 +301,9 @@ type alias DomainRecord =
     , srvWeight : Maybe Int     -- for SRV records
     }
 
+type alias DomainRecordRes =
+    { domainRecord : DomainRecord }
+
 type alias DomainRecordsRes =
     { domainRecords : List DomainRecord
     }
@@ -315,6 +319,12 @@ domainRecordDecoder =
         (field "priority" <| JD.nullable JD.int)
         (field "port" <| JD.nullable JD.int)
         (field "weight" <| JD.nullable JD.int)
+
+domainRecordResDecoder : Decoder DomainRecordRes
+domainRecordResDecoder =
+    JD.map
+        DomainRecordRes
+        (field "domain_record" domainRecordDecoder)
 
 domainRecordsResDecoder : Decoder DomainRecordsRes
 domainRecordsResDecoder =
@@ -341,10 +351,18 @@ getDomainRecords token domain resultToMsg =
 type alias DomainRecordResult =
     Result Error DomainRecord
 
+domainRecordResToDomainRecord : Result Error DomainRecordRes -> DomainRecordResult
+domainRecordResToDomainRecord res =
+    case res of
+        Err error -> Err error
+        Ok domainRecordRes ->
+            Ok domainRecordRes.domainRecord
+
 getDomainRecord : String -> String -> Int -> (DomainRecordResult -> msg) -> Cmd msg
 getDomainRecord token domain id resultToMsg =
     sendGetRequest
-        resultToMsg token (domainRecordUrl domain id) domainRecordDecoder
+        (\res -> resultToMsg <| domainRecordResToDomainRecord res)
+        token (domainRecordUrl domain id) domainRecordResDecoder
 
 maybeIntEncoder : Maybe Int -> Value
 maybeIntEncoder maybeInt =
@@ -363,20 +381,42 @@ newDomainRecordEncoder record =
         , ("weight", maybeIntEncoder record.srvWeight)
         ]
 
+dotifyData : String -> String
+dotifyData data =
+    if (data /= "@") && ((String.right 1 data) /= ".") then
+        data ++ "."
+    else
+        data
+
+dotifiedDomainRecordTypes : List String
+dotifiedDomainRecordTypes =
+    [ "CNAME"
+    , "MX"
+    ]
+
+dotifyDomainRecord : DomainRecord -> DomainRecord
+dotifyDomainRecord record =
+    if not <| List.member record.recordType dotifiedDomainRecordTypes then
+        record
+    else
+        { record | data = dotifyData record.data }
+
 -- The domain.id field is ignored
 createDomainRecord : String -> String -> DomainRecord -> (DomainRecordResult -> msg) -> Cmd msg
 createDomainRecord token domain record resultToMsg =
     sendPostRequest
-        resultToMsg
+        (\res -> resultToMsg <| domainRecordResToDomainRecord res)
         token (domainRecordsUrl domain)
-        (newDomainRecordEncoder record) domainRecordDecoder
+        (newDomainRecordEncoder <| dotifyDomainRecord record)
+        domainRecordResDecoder
 
 updateDomainRecord : String -> String -> DomainRecord -> (DomainRecordResult -> msg) -> Cmd msg
 updateDomainRecord token domain record resultToMsg =
     sendPostRequest
-        resultToMsg
+        (\res -> resultToMsg <| domainRecordResToDomainRecord res)
         token (domainRecordUrl domain record.id)
-        (newDomainRecordEncoder record) domainRecordDecoder
+        (newDomainRecordEncoder <| dotifyDomainRecord record)
+        domainRecordResDecoder
 
 deleteDomainRecord : String -> String -> Int -> (DeleteResult -> msg) -> Cmd msg
 deleteDomainRecord token domain id resultToMsg =
