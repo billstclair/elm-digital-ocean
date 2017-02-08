@@ -21,7 +21,7 @@ import DigitalOcean exposing ( AccountInfo, AccountInfoResult
 import Style as S exposing ( style, SClass, SId, id, class
                            , labeledTableStyle
                            )
-import Entities exposing ( nbsp, copyright, ellipsis )
+import Entities exposing ( copyright, ellipsis )
 
 import Http exposing ( Error )
 import Html exposing ( Html, Attribute
@@ -965,16 +965,20 @@ view model =
                   ]
             ]
 
-nbsp2 : String
+nbsp2 : Html msg
 nbsp2 =
-    nbsp ++ nbsp
+    text <| Entities.nbsp ++ Entities.nbsp
+
+nbsp : Html msg
+nbsp =
+    text Entities.nbsp
 
 renderNavigationLine : PageProperties -> Model -> Html Msg
 renderNavigationLine page model =
     let elts = List.map (\p -> renderNavigationElement p page) navigationPages
     in
         p [ class S.Centered ]
-          <| List.intersperse (text nbsp2) elts
+          <| List.intersperse nbsp2 elts
 
 renderNavigationElement : PageProperties -> PageProperties -> Html Msg
 renderNavigationElement props page =
@@ -1028,7 +1032,7 @@ viewAccountsInternal editingAccount model =
                     , class S.PrettyTable
                     ]
                 ( List.append
-                      (( tr [] [ th [ aWidth "1em" ] [ text nbsp ]
+                      (( tr [] [ th [ aWidth "1em" ] [ nbsp ]
                                , th [ aWidth "10em" ] [ text "Name" ]
                                , th [] [ text "Operation" ]
                                ]
@@ -1087,12 +1091,12 @@ renderAccountRow account isEditing isNew isChecked oldName =
                           else if oldName == account.name then
                                    text "Editing"
                                else
-                                   text nbsp
+                                   nbsp
                       else
                           span []
                               [ button  [ onClick <| EditAccount account ]
                                     [ text "Edit" ]
-                              , text nbsp
+                              , nbsp
                               , button [ onClick <| ShowDomains account ]
                                     [ text "Show Domains" ]
                               ]
@@ -1188,7 +1192,7 @@ viewDomains model =
                 , p []
                     [ button [ onClick FetchDomains ]
                           [ text "Refresh" ]
-                    , text nbsp
+                    , nbsp
                     , button [ onClick <| SetPage AccountsPage ]
                         [ text "Cancel" ]
                     ]
@@ -1218,7 +1222,7 @@ renderDomainsList domains model =
     table [ class S.PrettyTable
           , class S.AutoMargins ]
         ((tr []
-              [ th [ aWidth "1em" ] [ text nbsp ]
+              [ th [ aWidth "1em" ] [ nbsp ]
               , th [] [ text "Domain" ]
               , th [] [ text "TTL" ]
               , th [] [ text "Operation" ]
@@ -1360,7 +1364,7 @@ domainRecordRows record =
                 , tr [ class S.DisplayNone ]
                     [ td [ colspan 3 ] []
                     ]
-                , tr [] [ td [] [ text nbsp ]
+                , tr [] [ td [] [ nbsp ]
                         , td [ colspan 2]
                               [ text
                                     <| String.concat
@@ -1527,7 +1531,7 @@ viewCopyDomainRows storage model =
                                             dropletSelector toDroplet droplets
                                       ]
               , thtdRow "" ( case ipHtml of
-                                 [] -> [ text nbsp ]
+                                 [] -> [ nbsp ]
                                  _ -> ipHtml
                            )
               , thtdRow "To domain:" [ input [ type_ "text"
@@ -1549,7 +1553,7 @@ viewCopyDomainRows storage model =
                                       Move -> "Move Domain"
                                       Overwrite -> "Overwrite Domain"
                         ]
-                  , text nbsp
+                  , nbsp
                   , button [ onClick <| SetPage DomainsPage ]
                       [ text "Cancel" ]
                   ]
