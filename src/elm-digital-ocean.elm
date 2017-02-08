@@ -83,10 +83,11 @@ type alias CopyDomainStorage =
     { droplets : Maybe (List Droplet)
     , originalDomainRecords : Maybe (List DomainRecord)
     , domainRecords : Maybe (List DomainRecord)
-    , toAccount : Maybe Account --Nothing is treated as model.account
+    , toAccount : Maybe Account
     , toDomainName : String
     , toDroplets : Maybe (List Droplet)
     , toDroplet : Maybe Droplet
+    , verifyDelete : Bool
     }
 
 initialCopyDomainStorage : Model -> CopyDomainStorage
@@ -98,6 +99,7 @@ initialCopyDomainStorage model =
     , toDomainName = ""
     , toDroplets = Nothing
     , toDroplet = Nothing
+    , verifyDelete = False
     }
 
 type PageState
@@ -113,6 +115,7 @@ type Field
     | ToAccountField
     | ToDomainField
     | DomainRecordField Int
+    | VerifyDeleteField
     | NoField
 
 type alias UpdateFunction =
@@ -617,6 +620,7 @@ updateCopyDomainStorage storage field value model =
                                         , toDroplet = toDroplet
                                         , domainRecords
                                           = domainRecordMagic toDroplet storage
+                                        , verifyDelete = False
                                     }
                   }
                 , case toDroplets of
@@ -636,16 +640,18 @@ updateCopyDomainStorage storage field value model =
                                             { storage
                                                 | toDroplet = droplet
                                                 , domainRecords = domainRecords
+                                                , verifyDelete = False
                                             }
                           }
                         , Cmd.none
                         )
-
         ToDomainField ->
-            -- Need to check for duplicates here
             ( { model
                   | pageState = CopyDomainState
-                                { storage | toDomainName = value }
+                                { storage
+                                    | toDomainName = value
+                                    , verifyDelete = False
+                                }
               }
             , Cmd.none
             )
@@ -666,6 +672,13 @@ updateCopyDomainStorage storage field value model =
                       }
                     , Cmd.none
                     )
+        VerifyDeleteField ->
+            ( { model
+                    | pageState = CopyDomainState
+                                  { storage | verifyDelete = (value == "True") }
+              }
+            , Cmd.none
+            )
         _ ->
             ( model, Cmd.none )
 
@@ -1251,6 +1264,69 @@ renderIps a aaaa =
             |> List.map text
             |> List.intersperse br
 
+overwriteDomainMessage : String
+overwriteDomainMessage =
+    "Clicking the \"Overwrite Domain\" button will overwrite the domain. Do you really want to do that?"
+
+moveDomainMessage : String
+moveDomainMessage =
+    "Clicking the \"Move Domain\" button will delete the domain from the \"From account\" and add it to the \"To account\". Do you really want to do that?"
+
+isSameAccount : Maybe Account -> Maybe Account -> Bool
+isSameAccount acct1 acct2 =
+    if acct1 == acct2 then
+        True
+    else
+        case acct1 of
+            Nothing -> False
+            Just a1 ->
+                case acct2 of
+                    Nothing -> False
+                    Just a2 ->
+                        a1.name == a2.name
+
+copyDomainVerificationRows : CopyDomainStorage -> Model -> (Bool, List (Html Msg))
+copyDomainVerificationRows storage model =
+    let (showit, moveit, message)
+            = case storage.toDomainName of
+                  "" -> (False, False, "")
+                  toDomainName ->
+                      case model.domain of
+                          Nothing -> (False, False, "")
+                          Just domain ->
+                              if toDomainName /= domain.name
+                              || model.account == Nothing
+                              || storage.toAccount == Nothing
+                              then
+                                  (False, False, "")
+                              else if isSameAccount model.account storage.toAccount
+                              then
+                                  (True, False, overwriteDomainMessage)
+                              else
+                                  (True, True, moveDomainMessage)
+        html = if not showit then
+                   []
+               else
+                   [ tr [] [ td [ colspan 2 ] [ text message ] ]
+                   , tr [ class S.DisplayNone ]
+                       [ td [ colspan 2 ] [] ]
+                   , thtdRow
+                         ""
+                         [ input [ type_ "checkbox"
+                                 , onCheck
+                                       (\x ->
+                                            Set VerifyDeleteField
+                                            <| if x then "True" else "False"
+                                       )
+                                 , checked storage.verifyDelete
+                                 ]
+                               []
+                         , text "Yes"
+                         ]
+                   ]
+    in
+        ( moveit, html )
+
 viewCopyDomainRows : CopyDomainStorage -> Model -> List (Html Msg)
 viewCopyDomainRows storage model =
     let fromAccount = case model.account of
@@ -1274,26 +1350,42 @@ viewCopyDomainRows storage model =
                                 , publicNetworkIps networks.v6
                                 )
         ipHtml = renderIps a aaaa
+        (moveit, checkRows) = copyDomainVerificationRows storage model
     in
-        [ thtdRow "From account:" [ text fromAccount ]
-        , thtdRow "From domain:" [ text fromDomain ]
-        , thtdRow "To account:" [ accountSelector toAccount model.accounts ]
-        , thtdRow "To droplet:" [ case storage.toDroplets of
-                                      Nothing -> text "Fetching droplets..."
-                                      Just droplets ->
-                                          dropletSelector toDroplet droplets
-                                ]
-        , tr [] [ td [] []
-                , td [] ( case ipHtml of
-                              [] -> [ text nbsp ]
-                              _ -> ipHtml
-                        )
-                ]
-        , thtdRow "To domain:" [ input [ type_ "text"
-                                       , onInput <| Set ToDomainField
-                                       , size 30
-                                       , value storage.toDomainName
-                                       ]
-                                     []
-                               ]
-        ]
+        ( List.append
+              [ thtdRow "From account:" [ text fromAccount ]
+              , thtdRow "From domain:" [ text fromDomain ]
+              , thtdRow "To account:" [ accountSelector toAccount model.accounts ]
+              , thtdRow "To droplet:" [ case storage.toDroplets of
+                                            Nothing -> text "Fetching droplets..."
+                                            Just droplets ->
+                                            dropletSelector toDroplet droplets
+                                      ]
+              , thtdRow "" ( case ipHtml of
+                                 [] -> [ text nbsp ]
+                                 _ -> ipHtml
+                           )
+              , thtdRow "To domain:" [ input [ type_ "text"
+                                             , onInput <| Set ToDomainField
+                                             , size 30
+                                             , value storage.toDomainName
+                                             ]
+                                           []
+                                     ]
+              , thtdRow ""
+                  [ button [ disabled
+                             <| storage.toDomainName == ""
+                             || (checkRows /= [] && (not storage.verifyDelete))
+                           , onClick Commit
+                           ]
+                        [ text <| if moveit then
+                                      "Move Domain"
+                                  else if checkRows /= [] then
+                                      "Overwrite Domain"
+                                  else
+                                      "Copy Domain"
+                        ]
+                  ]
+              ]
+              checkRows
+        )
