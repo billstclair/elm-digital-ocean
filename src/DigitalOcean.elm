@@ -11,7 +11,8 @@
 ----------------------------------------------------------------------
 
 module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
-                             , Domain, DomainsResult, DomainResult, NewDomain
+                             , Domain, DomainsResult, DomainResult, DeleteResult
+                             , NewDomain
                              , getDomains, getDomain, deleteDomain, createDomain
                              , DomainRecord, DomainRecordsResult, DomainRecordResult
                              , getDomainRecords, getDomainRecord, createDomainRecord

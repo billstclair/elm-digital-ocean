@@ -277,7 +277,10 @@ type Msg = Nop
          | DomainsReceived DomainsResult
          | DropletsReceived DropletsResult WhichDroplets
          | DomainRecordsReceived DomainRecordsResult
-    
+         | CopyDomainRecords (List DomainRecord) Account Domain
+         | CopyDomainError Error
+         | CopyDomainComplete Account Domain
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case model.updater of
@@ -329,6 +332,14 @@ update msg model =
                     dropletsReceived domains whichDroplets model
                 DomainRecordsReceived records ->
                     domainRecordsReceived records model
+                CopyDomainRecords records account domain ->
+                    copyDomainRecords records account domain model
+                CopyDomainError error ->
+                    ( { model | message = Just <| toString error }
+                    , Cmd.none
+                    )
+                CopyDomainComplete account domain ->
+                    copyDomainComplete account domain model
 
 -- Update Accounts page
 
@@ -689,6 +700,15 @@ updateCopyDomainStorage storage field value model =
         _ ->
             ( model, Cmd.none )
 
+copyDomainComplete : Account -> Domain -> Model -> ( Model, Cmd Msg )
+copyDomainComplete account domain model =
+    setPage DomainsPage
+        { model
+            | account = Just account
+            , domain = Just domain
+            , message = Nothing
+        }
+
 -- Replace the A & AAAA values in storage.originalDomainRecords
 -- by changing values found in the networks of storage.droplets
 -- to the corresponding values in the networks of toDroplet
@@ -754,10 +774,103 @@ findNetworkAddress address droplets =
                             Just idx -> (.v6, idx)
                             Nothing -> ( emptyNetworks, -1 )                        
 
+emptyAccount : Account
+emptyAccount =
+    { name = ""
+    , token = ""
+    , info = Nothing
+    }
+
+copyDomainStuff : Model -> (Bool, CommitType, List DomainRecord, Account, String)
+copyDomainStuff model =
+    let no = (False, Copy, [], emptyAccount, "")
+    in
+        case model.pageState of
+            CopyDomainState storage ->
+                let (copyType, _) = copyDomainMessage storage model
+                    domainName = storage.toDomainName
+                in
+                    case model.account of
+                        Nothing -> no
+                        Just fromAccount ->
+                            case storage.domainRecords of
+                                Nothing -> no
+                                Just records ->
+                                    case storage.toAccount of
+                                        Nothing -> no
+                                        Just toAccount ->
+                                            ( domainName /= ""
+                                            , copyType
+                                            , records
+                                            , toAccount
+                                            , domainName
+                                            )
+            _ -> no
+
 commitCopyDomain : Bool -> Model -> ( Model, Cmd Msg )
 commitCopyDomain doit model =
-    ( model, Cmd.none )
+    let (doit, commitType, domainRecords, toAccount, domainName)
+            = copyDomainStuff model
+    in
+        if not doit then
+            ( model, Cmd.none )
+        else
+            let operator = case commitType of
+                               Copy -> doCopyDomain
+                               Move -> doMoveDomain
+                               Overwrite -> doOverwriteDomain
+            in
+                ( model
+                , operator domainRecords toAccount domainName
+                )
 
+firstIp : List DomainRecord -> String
+firstIp records =
+    case LE.find (\r -> r.recordType == "A") records of
+        Just record -> record.data
+        Nothing ->
+            case LE.find (\r -> r.recordType == "AAAA") records of
+                Just record -> record.data
+                Nothing -> "127.0.0.1"
+
+copyDomainRecords : List DomainRecord -> Account -> Domain -> Model -> (Model, Cmd Msg)
+copyDomainRecords records account domain model =
+    case records of
+        [] -> copyDomainComplete account domain model
+        record :: tail ->
+            let toMsg = (\res ->
+                             case res of
+                                 Err error -> CopyDomainError error
+                                 Ok _ ->
+                                     CopyDomainRecords tail account domain
+                        )
+            in
+                ( model
+                , DigitalOcean.createDomainRecord
+                    account.token domain.name record toMsg
+                )
+
+-- This process could leave the domain partially populated.
+-- Should probably delete it in that case, so the user can retry
+-- For doMoveDomain, however, the old domain is gone, so what
+-- we've got in memory is the only record.
+doCopyDomain : List DomainRecord -> Account -> String -> Cmd Msg
+doCopyDomain domainRecords account domainName =
+    let newDomain = { name = domainName
+                    , ip = firstIp domainRecords
+                    }
+        toMsg = (\res ->
+                     case res of
+                         Err error -> CopyDomainError error
+                         Ok domain ->
+                             CopyDomainRecords
+                                 domainRecords account domain
+                )
+    in
+        DigitalOcean.createDomain account.token newDomain toMsg
+
+doMoveDomain = doCopyDomain
+doOverwriteDomain = doCopyDomain
 
 
 -- VIEW
@@ -1302,26 +1415,34 @@ isSameAccount acct1 acct2 =
                     Just a2 ->
                         a1.name == a2.name
 
-copyDomainVerificationRows : CopyDomainStorage -> Model -> (Bool, List (Html Msg))
+type CommitType
+    = Copy
+    | Move
+    | Overwrite
+
+copyDomainMessage : CopyDomainStorage -> Model -> (CommitType, String)
+copyDomainMessage storage model =
+    case storage.toDomainName of
+        "" -> (Copy, "")
+        toDomainName ->
+            case model.domain of
+                Nothing -> (Copy, "")
+                Just domain ->
+                    if toDomainName /= domain.name
+                        || model.account == Nothing
+                            || storage.toAccount == Nothing
+                    then
+                        (Copy, "")
+                    else if isSameAccount model.account storage.toAccount
+                    then
+                        (Overwrite, overwriteDomainMessage)
+                    else
+                        (Move, moveDomainMessage)
+                                       
+copyDomainVerificationRows : CopyDomainStorage -> Model -> (CommitType, List (Html Msg))
 copyDomainVerificationRows storage model =
-    let (showit, moveit, message)
-            = case storage.toDomainName of
-                  "" -> (False, False, "")
-                  toDomainName ->
-                      case model.domain of
-                          Nothing -> (False, False, "")
-                          Just domain ->
-                              if toDomainName /= domain.name
-                              || model.account == Nothing
-                              || storage.toAccount == Nothing
-                              then
-                                  (False, False, "")
-                              else if isSameAccount model.account storage.toAccount
-                              then
-                                  (True, False, overwriteDomainMessage)
-                              else
-                                  (True, True, moveDomainMessage)
-        html = if not showit then
+    let (commitType, message) = copyDomainMessage storage model
+        html = if commitType == Copy then
                    []
                else
                    [ tr [] [ td [ colspan 2 ]
@@ -1347,7 +1468,7 @@ copyDomainVerificationRows storage model =
                          ]
                    ]
     in
-        ( moveit, html )
+        ( commitType, html )
 
 viewCopyDomainRows : CopyDomainStorage -> Model -> List (Html Msg)
 viewCopyDomainRows storage model =
@@ -1372,7 +1493,7 @@ viewCopyDomainRows storage model =
                                 , publicNetworkIps networks.v6
                                 )
         ipHtml = renderIps a aaaa
-        (moveit, checkRows) = copyDomainVerificationRows storage model
+        (commitType, checkRows) = copyDomainVerificationRows storage model
     in
         ( List.append
               [ thtdRow "From account:" [ text fromAccount ]
@@ -1391,6 +1512,7 @@ viewCopyDomainRows storage model =
                                              , onInput <| Set ToDomainField
                                              , size 30
                                              , value storage.toDomainName
+                                             , autofocus True
                                              ]
                                            []
                                      ]
@@ -1400,12 +1522,10 @@ viewCopyDomainRows storage model =
                              || (checkRows /= [] && (not storage.verifyDelete))
                            , onClick Commit
                            ]
-                        [ text <| if moveit then
-                                      "Move Domain"
-                                  else if checkRows /= [] then
-                                      "Overwrite Domain"
-                                  else
-                                      "Copy Domain"
+                        [ text <| case commitType of
+                                      Copy -> "Copy Domain"
+                                      Move -> "Move Domain"
+                                      Overwrite -> "Overwrite Domain"
                         ]
                   , text nbsp
                   , button [ onClick <| SetPage DomainsPage ]
