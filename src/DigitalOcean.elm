@@ -112,21 +112,21 @@ sendPostRequest resultToMsg token url value decoder =
 --- Generic HTTP DELETE
 ---
 
-makeDeleteRequest : String -> String -> Decoder a -> Http.Request a
-makeDeleteRequest token url decoder =
+makeDeleteRequest : String -> String -> Http.Request String
+makeDeleteRequest token url =
     Http.request
         { method = "DELETE"
         , headers = getRequestHeaders token
         , url = url
         , body = Http.emptyBody
-        , expect = Http.expectJson decoder
+        , expect = Http.expectString
         , timeout = Nothing
         , withCredentials = False
         }
 
-sendDeleteRequest : (Result Error a -> msg) -> String -> String -> Decoder a -> Cmd msg
-sendDeleteRequest resultToMsg token url decoder =
-    Http.send resultToMsg <| makeDeleteRequest token url decoder
+sendDeleteRequest : (Result Error String -> msg) -> String -> String -> Cmd msg
+sendDeleteRequest resultToMsg token url =
+    Http.send resultToMsg <| makeDeleteRequest token url
 
 ---
 --- Accounts
@@ -239,18 +239,14 @@ getDomain token domain resultToMsg =
     in
         sendGetRequest resultToMsg token url domainDecoder
 
-emptyDecoder : Decoder ()
-emptyDecoder =
-    JD.succeed ()
-
 type alias DeleteResult =
-    Result Error ()
+    Result Error String
 
 deleteDomain : String -> String -> (DeleteResult -> msg) -> Cmd msg
 deleteDomain token domain resultToMsg =
     let url = domainUrl domain
     in
-        sendDeleteRequest resultToMsg token url emptyDecoder
+        sendDeleteRequest resultToMsg token url
 
 type alias NewDomain =
     { name : String
@@ -422,7 +418,7 @@ deleteDomainRecord : String -> String -> Int -> (DeleteResult -> msg) -> Cmd msg
 deleteDomainRecord token domain id resultToMsg =
     let url = domainRecordUrl domain id
     in
-        sendDeleteRequest resultToMsg token url emptyDecoder
+        sendDeleteRequest resultToMsg token url
 
 ---
 --- Droplets - Just enough to get their IP addresses

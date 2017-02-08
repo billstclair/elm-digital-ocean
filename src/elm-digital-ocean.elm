@@ -16,7 +16,8 @@ import DigitalOceanAccounts exposing ( Account )
 import DigitalOcean exposing ( AccountInfo, AccountInfoResult
                              , Domain, DomainsResult
                              , DomainRecord, DomainRecordsResult
-                             , Droplet, DropletsResult, Networks, Network
+                             , Droplet, DropletsResult, DeleteResult
+                             , Networks, Network
                              )
 import Style as S exposing ( style, SClass, SId, id, class
                            , labeledTableStyle
@@ -76,9 +77,7 @@ type alias EditingAccount =
     }
 
 type alias EditingDomain =
-    { name : String
-    , ip : String
-    }
+    { deleteDomain : Domain }
 
 type alias CopyDomainStorage =
     { droplets : Maybe (List Droplet)
@@ -275,9 +274,11 @@ type Msg = Nop
          | SelectDomain Domain
          | FetchDomains
          | CopyDomain Domain
+         | DeleteDomain Domain
          | AccountVerified AccountInfoResult Account (List Account)
          | DomainsReceived DomainsResult
          | DropletsReceived DropletsResult WhichDroplets
+         | DeleteReceived DeleteResult
          | DomainRecordsReceived DomainRecordsResult
          | CopyDomainRecords (List DomainRecord) Account Domain
          | CopyDomainError Error
@@ -326,6 +327,8 @@ update msg model =
                     )
                 CopyDomain domain ->
                     setPage CopyDomainPage { model | domain = Just domain }
+                DeleteDomain domain ->
+                    deleteDomain domain model
                 SelectDomain domain ->
                     ( { model | domain = Just domain }
                     , Cmd.none
@@ -334,6 +337,8 @@ update msg model =
                     accountVerified info account accounts model
                 DomainsReceived domains ->
                     domainsReceived domains model
+                DeleteReceived result ->
+                    deleteReceived result model
                 DropletsReceived domains whichDroplets ->
                     dropletsReceived domains whichDroplets model
                 DomainRecordsReceived records ->
@@ -532,6 +537,54 @@ domainsReceived result model =
                     )
                 _ ->
                     ( model, Cmd.none )
+
+deleteReceived : DeleteResult -> Model -> ( Model, Cmd Msg )
+deleteReceived result model =
+    let res = setPage DomainsPage model
+    in
+        case result of
+            Ok _ ->
+                res
+            Err error ->
+                let (model, cmd) = res
+                in
+                    ( { model | message = Just <| toString error }
+                    , cmd
+                    )
+
+-- Here when the user pressses the "Delete..." or "Delete Now" button.
+deleteDomain : Domain -> Model -> ( Model, Cmd Msg )
+deleteDomain domain model =
+    case model.pageState of
+        DomainsState domains editing ->
+            doDeleteDomain domain domains editing model
+        _ ->
+            ( model, Cmd.none )
+
+doDeleteDomain : Domain -> Maybe (List Domain) -> Maybe EditingDomain -> Model -> ( Model, Cmd Msg )
+doDeleteDomain domain domains editing model =
+    case editing of
+        Nothing ->
+            ( { model
+                  | pageState
+                      = DomainsState domains <| Just { deleteDomain = domain }
+              }
+            , Cmd.none
+            )
+        Just { deleteDomain } ->
+            let res = setPage DomainsPage model
+            in
+                case model.account of
+                    Nothing ->
+                        res
+                    Just account ->
+                        ( Tuple.first res
+                        , Cmd.batch
+                            [ DigitalOcean.deleteDomain
+                                  account.token domain.name <| DeleteReceived
+                            , Cmd.none
+                            ]
+                        )
 
 -- Update copy domains page
 
@@ -891,7 +944,6 @@ doCopyDomain _ domainRecords account domainName =
 doMoveDomain = doCopyDomain
 doOverwriteDomain = doCopyDomain
 
-
 -- VIEW
 
 type alias PageProperties =
@@ -1188,7 +1240,7 @@ viewDomains model =
                       Nothing ->
                           text "Fetching domains..."
                       Just doms ->
-                        renderDomainsList doms model
+                        renderDomainsList doms editing model
                 , p []
                     [ button [ onClick FetchDomains ]
                           [ text "Refresh" ]
@@ -1217,18 +1269,17 @@ viewDomains model =
                 ]
       )
 
-renderDomainsList : List Domain -> Model -> Html Msg
-renderDomainsList domains model =
+renderDomainsList : List Domain -> Maybe EditingDomain -> Model -> Html Msg
+renderDomainsList domains editing model =
     table [ class S.PrettyTable
           , class S.AutoMargins ]
         ((tr []
               [ th [ aWidth "1em" ] [ nbsp ]
               , th [] [ text "Domain" ]
-              , th [] [ text "TTL" ]
               , th [] [ text "Operation" ]
               ]
          ) ::
-             (List.map (\domain -> renderDomainRow domain model) domains)
+             (List.map (\domain -> renderDomainRow domain editing model) domains)
         )
 
 domainBaseUrl : String
@@ -1239,8 +1290,8 @@ domainUrl : Domain -> String
 domainUrl domain =
     domainBaseUrl ++ domain.name
 
-renderDomainRow : Domain -> Model -> Html Msg
-renderDomainRow domain model =
+renderDomainRow : Domain -> Maybe EditingDomain -> Model -> Html Msg
+renderDomainRow domain editing model =
     tr [ class S.AlignLeft ]
         [ td [] [ input [ type_ "radio"
                         , name "domain"
@@ -1263,10 +1314,26 @@ renderDomainRow domain model =
                     ]
                       [ text domain.name ]
                 ]
-        , td [] [ text <| toString domain.ttl ]
-        , td [] [ button [ onClick <| CopyDomain domain ]
-                      [ text "Copy" ]
-                ]
+        , td []
+            ( case editing of
+                  Nothing ->
+                      [ button [ onClick <| CopyDomain domain ]
+                            [ text "Copy" ]
+                      , nbsp
+                      , button [ onClick <| DeleteDomain domain ]
+                          [ text <| "Delete" ++ ellipsis ]
+                      ]
+                  Just { deleteDomain } ->
+                      if deleteDomain.name /= domain.name then
+                          []
+                      else
+                          [ button [ onClick <| DeleteDomain domain ]
+                                [ text "Delete!!" ]
+                          , nbsp
+                          , button [ onClick <| SetPage DomainsPage ]
+                              [ text "Cancel" ]
+                          ]
+            )
         ]
 
 -- This can't yet be called
