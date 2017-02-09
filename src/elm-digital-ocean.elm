@@ -15,7 +15,7 @@ module ElmDigitalOcean exposing (..)
 import DigitalOceanAccounts exposing ( Account )
 import DigitalOcean exposing ( AccountInfo, AccountInfoResult
                              , Domain, DomainsResult
-                             , DomainRecord, DomainRecordsResult
+                             , DomainRecord, DomainRecordUpdate, DomainRecordsResult
                              , Droplet, DropletsResult, DeleteResult
                              , Networks, Network
                              )
@@ -94,17 +94,21 @@ type alias CopyDomainStorage =
 
 initialCopyDomainStorage : Model -> CopyDomainStorage
 initialCopyDomainStorage model =
-    { droplets = Nothing
-    , originalDomainRecords = Nothing
-    , domainRecords = Nothing
-    , toAccount = model.account
-    , toDomainName = ""
-    , toDroplets = Nothing
-    , toDroplet = Nothing
-    , verifyDelete = False
-    , recordNumber = 0
-    , recordCount = 0
-    }
+    let domainName = case model.domain of
+                         Nothing -> ""
+                         Just d -> d.name
+    in
+        { droplets = Nothing
+        , originalDomainRecords = Nothing
+        , domainRecords = Nothing
+        , toAccount = model.account
+        , toDomainName = domainName
+        , toDroplets = Nothing
+        , toDroplet = Nothing
+        , verifyDelete = False
+        , recordNumber = 0
+        , recordCount = 0
+        }
 
 type PageState
     = AccountsState (Maybe EditingAccount)
@@ -267,6 +271,7 @@ init =
 
 type Msg = Nop
          | ErrorMessage String
+         | DoCmd (Cmd Msg)
          | SetPage Page
          | Set Field String
          | Commit
@@ -284,7 +289,7 @@ type Msg = Nop
          | DropletsReceived DropletsResult WhichDroplets
          | DeleteReceived DeleteResult
          | DomainRecordsReceived DomainRecordsResult
-         | CopyDomainRecords (List DomainRecord) Account Domain (Int, Int)
+         | CopyDomainRecords (List DomainRecord) Account Domain (Int, Int) Bool
          | CopyDomainError Error
          | CopyDomainComplete Account Domain
 
@@ -299,6 +304,8 @@ update msg model =
                     ( { model | message = Just message }
                     , Cmd.none
                     )
+                DoCmd cmd ->
+                    ( model, cmd )
                 SetPage page ->
                     setPage page model
                 Set field string ->
@@ -347,8 +354,8 @@ update msg model =
                     dropletsReceived domains whichDroplets model
                 DomainRecordsReceived records ->
                     domainRecordsReceived records model
-                CopyDomainRecords records account domain progress ->
-                    copyDomainRecords records account domain progress model
+                CopyDomainRecords records account domain progress isUpdate ->
+                    copyDomainRecords records account domain progress isUpdate model
                 CopyDomainError error ->
                     ( { model | message = Just <| toString error }
                     , Cmd.none
@@ -671,15 +678,16 @@ defaultToDroplet droplets records =
             case records of
                 Nothing -> Nothing
                 Just rs ->
-                    List.foldl
-                        (\r res ->
-                             case res of
-                                 Just _ -> res
-                                 Nothing ->
-                             findDomainRecordInDroplets r ds
-                        )
-                        Nothing
-                        rs
+                    case List.foldl (\r res ->
+                                         case res of
+                                             Just _ -> res
+                                             Nothing ->
+                                                 findDomainRecordInDroplets r ds
+                                    )
+                                    Nothing rs
+                    of
+                        Nothing -> List.head ds
+                        res -> res
                         
 findDomainRecordInDroplets : DomainRecord -> List Droplet -> Maybe Droplet
 findDomainRecordInDroplets record droplets =
@@ -873,7 +881,7 @@ findNetworkAddress address droplets =
                     Nothing ->
                         case findPublicIpIndex address networks.v6 of
                             Just idx -> (.v6, idx)
-                            Nothing -> ( emptyNetworks, -1 )                        
+                            Nothing -> findNetworkAddress address tail
 
 emptyAccount : Account
 emptyAccount =
@@ -920,10 +928,11 @@ commitCopyDomain doit model =
             let operator = case commitType of
                                Copy -> doCopyDomain
                                Move -> doMoveDomain
-                               Overwrite -> doOverwriteDomain
+                               Change -> doChangeDomain
             in
                 ( model
-                , operator fromAccount domainRecords toAccount domainName
+                , Tuple.first
+                    <| operator fromAccount domainRecords toAccount domainName
                 )
 
 ignoredDomainRecordTypes : List String
@@ -931,34 +940,51 @@ ignoredDomainRecordTypes =
     [ "NS"
     ]
 
-copyDomainRecordsProgressString : Int -> Int -> String
-copyDomainRecordsProgressString count total =
-    "Creating " ++ (toString count) ++ " of " ++ (toString total) ++ " domain records."
+copyDomainRecordsProgressString : Int -> Int -> Bool -> String
+copyDomainRecordsProgressString count total isUpdate =
+    (if isUpdate then "Updating " else "Creating ")
+    ++ (toString count) ++ " of " ++ (toString total) ++ " domain records."
 
-copyDomainRecords : List DomainRecord -> Account -> Domain -> (Int, Int) -> Model -> (Model, Cmd Msg)
-copyDomainRecords records account domain progress model =
+makeUpdateDataDomainRecord : DomainRecord -> DomainRecordUpdate
+makeUpdateDataDomainRecord record =
+    { recordType = record.recordType
+    , name = Nothing
+    , data = Just <| record.data
+    , priority = Nothing
+    , srvPort = Nothing
+    , srvWeight = Nothing
+    }
+
+copyDomainRecords : List DomainRecord -> Account -> Domain -> (Int, Int) -> Bool -> Model -> (Model, Cmd Msg)
+copyDomainRecords records account domain progress isUpdate model =
     case records of
         [] -> copyDomainComplete account domain model
         record :: tail ->
             let (count, total) = progress
             in
                 if List.member record.recordType ignoredDomainRecordTypes then
-                    copyDomainRecords tail account domain (count+1, total) model
+                    copyDomainRecords tail account domain (count+1, total) isUpdate model
                 else
                     let toMsg = (\res ->
                                  case res of
                                      Err error -> CopyDomainError error
                                      Ok _ ->
                                      CopyDomainRecords
-                                         tail account domain (count+1, total)
+                                         tail account domain (count+1, total) isUpdate
                                 )
                     in
                         ( { model
                               | message
-                                = Just <| copyDomainRecordsProgressString count total
+                                = Just <| copyDomainRecordsProgressString count total isUpdate
                           }
-                        , DigitalOcean.createDomainRecord
-                            account.token domain.name record toMsg
+                        , if isUpdate then
+                              DigitalOcean.updateDomainRecord
+                                  account.token domain.name record.id
+                                  (makeUpdateDataDomainRecord record)
+                                  toMsg
+                          else
+                              DigitalOcean.createDomainRecord
+                                  account.token domain.name record toMsg
                         )
 
 msgToCmd : Msg -> Cmd Msg
@@ -970,13 +996,15 @@ msgToCmd msg =
 -- For doMoveDomain, however, the old domain is gone, so what
 -- we've got in memory is the only record.
 -- It probably won't happen in practice, so I'm not going to worry about it.
-doCopyDomain : Account -> List DomainRecord -> Account -> String -> Cmd Msg
+doCopyDomain : Account -> List DomainRecord -> Account -> String -> (Cmd Msg, Bool)
 doCopyDomain _ domainRecords account domainName =
     let aRecord = LE.find (\a -> a.recordType == "A") domainRecords
     in
         case aRecord of
             Nothing ->
-                msgToCmd <| ErrorMessage "No A record. Can't create domain."
+                ( msgToCmd <| ErrorMessage "No A record. Can't create domain."
+                , True
+                )
             Just record ->
                 let newDomain = { name = domainName
                                 , ip = record.data
@@ -990,12 +1018,46 @@ doCopyDomain _ domainRecords account domainName =
                                        CopyDomainRecords
                                            records account domain
                                            (1, List.length records)
+                                           False
                             )
                 in
-                    DigitalOcean.createDomain account.token newDomain toMsg
+                    ( DigitalOcean.createDomain account.token newDomain toMsg
+                    , False
+                    )
 
-doMoveDomain = doCopyDomain
-doOverwriteDomain = doCopyDomain
+doMoveDomain : Account -> List DomainRecord -> Account -> String -> (Cmd Msg, Bool)
+doMoveDomain fromAccount records toAccount domainName =
+    let (cmd, isError) = doCopyDomain fromAccount records toAccount domainName
+    in
+        if isError then
+            ( cmd, True )
+        else
+            let toMsg = (\res ->
+                             case res of
+                                 Err error -> CopyDomainError error
+                                 Ok _ ->
+                                     DoCmd cmd
+                        )
+            in
+                ( DigitalOcean.deleteDomain fromAccount.token domainName toMsg
+                , False
+                )
+
+doChangeDomain : Account -> List DomainRecord -> Account -> String -> (Cmd Msg, Bool)
+doChangeDomain _ records toAccount domainName =
+    case List.filter (\a -> List.member a.recordType updateableRecordTypes) records of
+        [] -> ( Cmd.none, False )
+        rs ->
+            let domain = { name = domainName
+                         , ttl = Nothing
+                         , zoneFile = Nothing
+                         }
+            in
+                ( msgToCmd
+                  <| CopyDomainRecords
+                      rs toAccount domain (1, List.length rs) True
+                , False
+                )
 
 -- VIEW
 
@@ -1371,7 +1433,7 @@ renderDomainRow domain editing model =
             ( case editing of
                   Nothing ->
                       [ button [ onClick <| CopyDomain domain ]
-                            [ text "Copy" ]
+                            [ text "Change/Copy" ]
                       , nbsp
                       , button [ onClick <| DeleteDomain domain ]
                           [ text <| "Delete" ++ ellipsis ]
@@ -1398,7 +1460,7 @@ viewCopyDomain : Model -> Html Msg
 viewCopyDomain model =
     div []
         [ labeledTableStyle
-        , h3 [ class S.Centered ] [ text "Copy Domain" ]
+        , h3 [ class S.Centered ] [ text "Change/Copy Domain" ]
         , case model.pageState of
               CopyDomainState storage ->
                   viewCopyDomainBody storage model
@@ -1540,10 +1602,6 @@ renderIps a aaaa =
             |> List.map text
             |> List.intersperse br
 
-overwriteDomainMessage : String
-overwriteDomainMessage =
-    "Clicking the \"Overwrite Domain\" button will overwrite the domain."
-
 moveDomainMessage : String
 moveDomainMessage =
     "Clicking the \"Move Domain\" button will move the domain to the \"To account\"."
@@ -1564,7 +1622,7 @@ isSameAccount acct1 acct2 =
 type CommitType
     = Copy
     | Move
-    | Overwrite
+    | Change
 
 copyDomainMessage : CopyDomainStorage -> Model -> (CommitType, String)
 copyDomainMessage storage model =
@@ -1581,14 +1639,14 @@ copyDomainMessage storage model =
                         (Copy, "")
                     else if isSameAccount model.account storage.toAccount
                     then
-                        (Overwrite, overwriteDomainMessage)
+                        (Change, "")
                     else
                         (Move, moveDomainMessage)
                                        
 copyDomainVerificationRows : CopyDomainStorage -> Model -> (CommitType, List (Html Msg))
 copyDomainVerificationRows storage model =
     let (commitType, message) = copyDomainMessage storage model
-        html = if commitType == Copy then
+        html = if List.member commitType [ Copy, Change ] then
                    []
                else
                    [ tr [] [ td [ colspan 2 ]
@@ -1671,7 +1729,7 @@ viewCopyDomainRows storage model =
                         [ text <| case commitType of
                                       Copy -> "Copy Domain"
                                       Move -> "Move Domain"
-                                      Overwrite -> "Overwrite Domain"
+                                      Change -> "Change Domain"
                         ]
                   , nbsp
                   , button [ onClick <| SetPage DomainsPage ]

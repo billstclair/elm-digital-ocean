@@ -14,7 +14,8 @@ module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
                              , Domain, DomainsResult, DomainResult, DeleteResult
                              , NewDomain
                              , getDomains, getDomain, deleteDomain, createDomain
-                             , DomainRecord, DomainRecordsResult, DomainRecordResult
+                             , DomainRecord, DomainRecordUpdate
+                             , DomainRecordsResult, DomainRecordResult
                              , getDomainRecords, getDomainRecord, createDomainRecord
                              , updateDomainRecord, deleteDomainRecord
                              , Droplet, Networks, Network, DropletsResult
@@ -112,9 +113,25 @@ makePostRequest token url body decoder =
         , withCredentials = False
         }
 
+makePutRequest : String -> String -> Value -> Decoder a -> Http.Request a
+makePutRequest token url body decoder =
+    Http.request
+        { method = "PUT"
+        , headers = getRequestHeaders token
+        , url = url
+        , body = Http.jsonBody body
+        , expect = Http.expectJson decoder
+        , timeout = Nothing
+        , withCredentials = False
+        }
+
 sendPostRequest : (Result Error a -> msg) -> String -> String -> Value -> Decoder a -> Cmd msg
 sendPostRequest resultToMsg token url value decoder =
     Http.send resultToMsg <| makePostRequest token url value decoder
+
+sendPutRequest : (Result Error a -> msg) -> String -> String -> Value -> Decoder a -> Cmd msg
+sendPutRequest resultToMsg token url value decoder =
+    Http.send resultToMsg <| makePutRequest token url value decoder
 
 ---
 --- Generic HTTP DELETE
@@ -298,6 +315,15 @@ type alias DomainRecord =
     , srvWeight : Maybe Int     -- for SRV records
     }
 
+type alias DomainRecordUpdate =
+    { recordType : String
+    , name : Maybe String
+    , data : Maybe String
+    , priority : Maybe Int      -- for SRV and MX records
+    , srvPort : Maybe Int       -- for SRV records
+    , srvWeight : Maybe Int     -- for SRV records
+    }
+
 type alias DomainRecordRes =
     { domainRecord : DomainRecord }
 
@@ -378,6 +404,23 @@ newDomainRecordEncoder record =
         , ("weight", maybeIntEncoder record.srvWeight)
         ]
 
+maybeTupleVector : String -> Maybe value -> (value -> Value ) -> List (String, Value)
+maybeTupleVector name value encoder =
+    case value of
+        Nothing -> []
+        Just v -> [ ( name, encoder v ) ]
+
+updatedDomainRecordEncoder : DomainRecordUpdate -> Value
+updatedDomainRecordEncoder record =
+    JE.object
+        <| List.concat
+            [ maybeTupleVector "name" record.name JE.string
+            , maybeTupleVector "data" record.data JE.string
+            , maybeTupleVector "priority" record.priority JE.int
+            , maybeTupleVector "port" record.srvPort JE.int
+            , maybeTupleVector "weight" record.srvWeight JE.int
+            ]
+
 dotifyData : String -> String
 dotifyData data =
     if (data /= "@") && ((String.right 1 data) /= ".") then
@@ -398,6 +441,16 @@ dotifyDomainRecord record =
     else
         { record | data = dotifyData record.data }
 
+dotifyDomainRecordUpdate : DomainRecordUpdate -> DomainRecordUpdate
+dotifyDomainRecordUpdate record =
+    if not <| List.member record.recordType dotifiedDomainRecordTypes then
+        record
+    else
+        case record.data of
+            Nothing -> record
+            Just d ->
+                { record | data = Just <| dotifyData d }
+
 -- The domain.id field is ignored
 createDomainRecord : String -> String -> DomainRecord -> (DomainRecordResult -> msg) -> Cmd msg
 createDomainRecord token domain record resultToMsg =
@@ -407,12 +460,12 @@ createDomainRecord token domain record resultToMsg =
         (newDomainRecordEncoder <| dotifyDomainRecord record)
         domainRecordResDecoder
 
-updateDomainRecord : String -> String -> DomainRecord -> (DomainRecordResult -> msg) -> Cmd msg
-updateDomainRecord token domain record resultToMsg =
-    sendPostRequest
+updateDomainRecord : String -> String -> Int -> DomainRecordUpdate -> (DomainRecordResult -> msg) -> Cmd msg
+updateDomainRecord token domain id record resultToMsg =
+    sendPutRequest
         (\res -> resultToMsg <| domainRecordResToDomainRecord res)
-        token (domainRecordUrl domain record.id)
-        (newDomainRecordEncoder <| dotifyDomainRecord record)
+        token (domainRecordUrl domain id)
+        (updatedDomainRecordEncoder <| dotifyDomainRecordUpdate record)
         domainRecordResDecoder
 
 deleteDomainRecord : String -> String -> Int -> (DeleteResult -> msg) -> Cmd msg
