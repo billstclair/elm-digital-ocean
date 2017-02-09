@@ -88,6 +88,8 @@ type alias CopyDomainStorage =
     , toDroplets : Maybe (List Droplet)
     , toDroplet : Maybe Droplet
     , verifyDelete : Bool
+    , recordNumber : Int
+    , recordCount : Int
     }
 
 initialCopyDomainStorage : Model -> CopyDomainStorage
@@ -100,6 +102,8 @@ initialCopyDomainStorage model =
     , toDroplets = Nothing
     , toDroplet = Nothing
     , verifyDelete = False
+    , recordNumber = 0
+    , recordCount = 0
     }
 
 type PageState
@@ -280,7 +284,7 @@ type Msg = Nop
          | DropletsReceived DropletsResult WhichDroplets
          | DeleteReceived DeleteResult
          | DomainRecordsReceived DomainRecordsResult
-         | CopyDomainRecords (List DomainRecord) Account Domain
+         | CopyDomainRecords (List DomainRecord) Account Domain (Int, Int)
          | CopyDomainError Error
          | CopyDomainComplete Account Domain
 
@@ -343,8 +347,8 @@ update msg model =
                     dropletsReceived domains whichDroplets model
                 DomainRecordsReceived records ->
                     domainRecordsReceived records model
-                CopyDomainRecords records account domain ->
-                    copyDomainRecords records account domain model
+                CopyDomainRecords records account domain progress ->
+                    copyDomainRecords records account domain progress model
                 CopyDomainError error ->
                     ( { model | message = Just <| toString error }
                     , Cmd.none
@@ -660,6 +664,7 @@ domainRecordsReceived result model =
                     )
                 _ ->
                     ( model, Cmd.none )
+
 updateCopyDomainField : Field -> String -> Model -> ( Model, Cmd Msg )
 updateCopyDomainField field value model =
     case model.pageState of
@@ -889,25 +894,35 @@ ignoredDomainRecordTypes =
     [ "NS"
     ]
 
-copyDomainRecords : List DomainRecord -> Account -> Domain -> Model -> (Model, Cmd Msg)
-copyDomainRecords records account domain model =
+copyDomainRecordsProgressString : Int -> Int -> String
+copyDomainRecordsProgressString count total =
+    "Creating " ++ (toString count) ++ " of " ++ (toString total) ++ " domain records."
+
+copyDomainRecords : List DomainRecord -> Account -> Domain -> (Int, Int) -> Model -> (Model, Cmd Msg)
+copyDomainRecords records account domain progress model =
     case records of
         [] -> copyDomainComplete account domain model
         record :: tail ->
-            if List.member record.recordType ignoredDomainRecordTypes then
-                copyDomainRecords tail account domain model
-            else
-                let toMsg = (\res ->
+            let (count, total) = progress
+            in
+                if List.member record.recordType ignoredDomainRecordTypes then
+                    copyDomainRecords tail account domain (count+1, total) model
+                else
+                    let toMsg = (\res ->
                                  case res of
                                      Err error -> CopyDomainError error
                                      Ok _ ->
-                                         CopyDomainRecords tail account domain
-                            )
-                in
-                    ( model
-                    , DigitalOcean.createDomainRecord
-                        account.token domain.name record toMsg
-                    )
+                                     CopyDomainRecords
+                                         tail account domain (count+1, total)
+                                )
+                    in
+                        ( { model
+                              | message
+                                = Just <| copyDomainRecordsProgressString count total
+                          }
+                        , DigitalOcean.createDomainRecord
+                            account.token domain.name record toMsg
+                        )
 
 msgToCmd : Msg -> Cmd Msg
 msgToCmd msg =
@@ -937,6 +952,7 @@ doCopyDomain _ domainRecords account domainName =
                                      Ok domain ->
                                        CopyDomainRecords
                                            records account domain
+                                           (1, List.length records)
                             )
                 in
                     DigitalOcean.createDomain account.token newDomain toMsg

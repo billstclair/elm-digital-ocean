@@ -54,6 +54,14 @@ dropletsUrl : String
 dropletsUrl =
     baseUrl ++ "droplets"
 
+-- Append this to GET requests that may return more than 25 records.
+-- The code really should do more requests with ?page=N appended,
+-- If {"meta":{"total":<cnt>}} has <cnt> greater than the number of
+-- results returned, but I didn't bother for now.
+perPage : String
+perPage =
+    "?per_page=200"
+
 ---
 --- Generic HTTP GET
 ---
@@ -77,7 +85,7 @@ makeGetRequest token url decoder =
     Http.request
         { method = "GET"
         , headers = getRequestHeaders token
-        , url = url
+        , url = url ++ perPage
         , body = Http.emptyBody
         , expect = Http.expectJson decoder
         , timeout = Nothing
