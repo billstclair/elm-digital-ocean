@@ -171,13 +171,6 @@ accountResDecoder =
         AccountRes
         (field "account" accountInfoDecoder)
 
-decodeAccountRes : String -> Result String AccountInfo
-decodeAccountRes json =
-    case JD.decodeString accountResDecoder json of
-        Err msg -> Err msg
-        Ok accountRes ->
-            Ok accountRes.account
-
 type alias AccountInfoResult =
     Result Error AccountInfo
 
