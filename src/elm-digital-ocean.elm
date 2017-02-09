@@ -613,13 +613,7 @@ dropletsReceived result whichDroplets model =
                                     (Just droplets, toDroplets)
                             ToDroplets ->
                                 (storage.droplets, Just droplets)
-                        toDroplet = case storage.toDroplet of
-                                        Nothing ->
-                                            case toDroplets of
-                                                Nothing -> Nothing
-                                                Just ds ->
-                                                    List.head ds
-                                        Just d -> Just d
+                        toDroplet = defaultToDroplet toDroplets storage.originalDomainRecords
                         storage2 = { storage
                                        | droplets = fromDroplets
                                        , toDroplets = toDroplets
@@ -653,17 +647,60 @@ domainRecordsReceived result model =
         Ok records ->
             case model.pageState of
                 CopyDomainState storage ->
-                    ( { model
-                          | pageState = CopyDomainState
-                                        { storage
-                                            | originalDomainRecords = Just records
-                                            , domainRecords = Just records
-                                        }
-                      }
-                    , Cmd.none
-                    )
+                    let storage2 = { storage | originalDomainRecords = Just records }
+                        toDroplet = defaultToDroplet storage2.toDroplets <| Just records
+                    in
+                        ( { model
+                              | pageState = CopyDomainState
+                                            { storage2
+                                                | toDroplet = toDroplet
+                                                , domainRecords =
+                                                    domainRecordMagic toDroplet storage2
+                                            }
+                          }
+                        , Cmd.none
+                        )
                 _ ->
                     ( model, Cmd.none )
+
+defaultToDroplet : Maybe (List Droplet) -> Maybe (List DomainRecord) -> Maybe Droplet
+defaultToDroplet droplets records =
+    case droplets of
+        Nothing -> Nothing
+        Just ds ->
+            case records of
+                Nothing -> Nothing
+                Just rs ->
+                    List.foldl
+                        (\r res ->
+                             case res of
+                                 Just _ -> res
+                                 Nothing ->
+                             findDomainRecordInDroplets r ds
+                        )
+                        Nothing
+                        rs
+                        
+findDomainRecordInDroplets : DomainRecord -> List Droplet -> Maybe Droplet
+findDomainRecordInDroplets record droplets =
+    let recordType = record.recordType
+        data = record.data
+    in
+        if List.member recordType ["A", "AAAA"] then
+            LE.find (\d ->
+                         let networks = d.networks
+                         in
+                             -- All those maps inside the loop are expensive,
+                             -- but I doubt anybody will notice.
+                             List.member data
+                                 <| if recordType == "A" then
+                                        List.map .ip networks.v4
+                                    else
+                                        List.map .ip networks.v6
+                    )
+                droplets
+        else
+            Nothing                 
 
 updateCopyDomainField : Field -> String -> Model -> ( Model, Cmd Msg )
 updateCopyDomainField field value model =
