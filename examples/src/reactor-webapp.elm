@@ -12,7 +12,7 @@
 --
 ----------------------------------------------------------------------
 
-module DigitalOceanWebapp exposing (..)
+module DigitalOceanReactor exposing (..)
 
 import SharedUI exposing ( Model, Msg, AccountSetter
                          , view, update, subscriptions
