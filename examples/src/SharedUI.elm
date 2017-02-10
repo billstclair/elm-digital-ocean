@@ -12,6 +12,7 @@
 --port
 module SharedUI exposing ( Property, Model, Msg
                          , init, view, update, subscriptions
+                         , accountsProperty
                          )
 
 import DigitalOceanAccounts exposing ( Account )

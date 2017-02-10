@@ -14,7 +14,7 @@
 
 module DigitalOceanReactor exposing (..)
 
-import SharedUI exposing ( Model, Msg, AccountSetter
+import SharedUI exposing ( Model, Msg, Property
                          , view, update, subscriptions
                          )
 import DigitalOceanAccounts
@@ -22,8 +22,8 @@ import DigitalOceanAccounts
 import Html
 
 -- This is a port in port-webapp.elm
-accountSetter : AccountSetter
-accountSetter key value =
+setProperty : (String, Maybe String) -> Cmd Msg
+setProperty (key, value) =
     Cmd.none
 
 main =
@@ -34,6 +34,12 @@ main =
         , subscriptions = subscriptions
         }
 
+initialProperties : List Property
+initialProperties =
+    let json = DigitalOceanAccounts.encodeAccounts DigitalOceanAccounts.testAccounts
+    in
+        [ ( SharedUI.accountsProperty, json ) ]
+
 init : ( Model, Cmd Msg )
 init =
-    SharedUI.init DigitalOceanAccounts.testAccounts accountSetter
+    SharedUI.init initialProperties setProperty
