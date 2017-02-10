@@ -21,5 +21,5 @@ type alias Account =
 
 testAccounts : List Account
 testAccounts =
-    [ -- Add your private accounts here during development.
+    [ 
     ]
