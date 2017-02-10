@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------
 --
--- ElmDigitalOcean.elm
--- Elm client to Digital Ocean's API
+-- SharedUI.elm
+-- The bulk of the code for the elm-digital-ocean webapp example.
 -- Copyright (c) 2017 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
@@ -10,7 +10,9 @@
 ----------------------------------------------------------------------
 
 --port
-module ElmDigitalOcean exposing (..)
+module SharedUI exposing ( Model, Msg, AccountSetter
+                         , init, view, update, subscriptions
+                         )
 
 import DigitalOceanAccounts exposing ( Account )
 import DigitalOcean exposing ( AccountInfo, AccountInfoResult
@@ -45,23 +47,9 @@ import Debug exposing (log)
 import Dict exposing (Dict)
 import Task
 
-{-   No ports yet
--- (key, value)
-port set : (String, Maybe String) -> Cmd msg
--}
-
--- Temporary
-set : (String, Maybe String) -> Cmd msg
-set (key, value) =
-    Cmd.none
-
-main =
-    Html.program
-        { init = init
-        , view = view
-        , update = update
-        , subscriptions = (\model -> Sub.none)
-        }
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.none
 
 -- MODEL
 
@@ -144,6 +132,7 @@ type alias Model =
     , page : Page
     , pageState : PageState
     , updater : Updater
+    , accountSetter : AccountSetter
     }
 
 nullUpdater : Updater
@@ -241,6 +230,9 @@ fetchDomainRecordsCmd account domain =
                     DigitalOcean.getDomainRecords
                         acct.token dom.name DomainRecordsReceived
 
+type alias AccountSetter =
+    ((String, Maybe String) -> Cmd Msg)
+
 initialModel : Model
 initialModel =
     { message = Nothing
@@ -250,17 +242,19 @@ initialModel =
     , page = AccountsPage
     , pageState = initialAccountsState
     , updater = accountsUpdater
+    , accountSetter = (\_ -> Cmd.none)
     }
 
 -- init : String -> ( Model, Cmd Msg )
 -- init json =
-init : ( Model, Cmd Msg )
-init =
-    let accounts = List.sortBy .name DigitalOceanAccounts.testAccounts
+init : List Account -> AccountSetter -> ( Model, Cmd Msg )
+init initialAccounts setter =
+    let accounts = List.sortBy .name initialAccounts
         account = List.head accounts --this should be persistent
         model = { initialModel
                     | accounts = accounts
                     , account = account
+                    , accountSetter = setter
                 }
     in
         ( model

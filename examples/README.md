@@ -7,7 +7,7 @@ The persistent account store isn't yet implemented. During development, you can 
     cd .../elm-digital-ocean/examples
     elm reactor
 
-Then aim your browser at [localhost:8000/src/elm-digital-ocean.elm](http://localhost:8000/src/elm-digital-ocean.elm).
+Then aim your browser at [localhost:8000/src/reactor-webapp.elm](http://localhost:8000/src/reactor-webapp.elm).
 
 Bill St. Clair &lt;<billstclair@gmail.com>&gt;<br/>
 10 February 2017
