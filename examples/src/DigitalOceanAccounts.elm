@@ -11,7 +11,9 @@
 
 module DigitalOceanAccounts exposing ( Account, testAccounts
                                      , accountDecoder, decodeAccount
+                                     , accountsDecoder, decodeAccounts
                                      , accountEncoder, encodeAccount
+                                     , accountsEncoder, encodeAccounts
                                      )
 
 import DigitalOcean exposing (AccountInfoResult)
@@ -31,6 +33,14 @@ decodeAccount : String -> Result String Account
 decodeAccount json =
     JD.decodeString accountDecoder json
 
+accountsDecoder : Decoder (List Account)
+accountsDecoder =
+    JD.list accountDecoder
+
+decodeAccounts : String -> Result String (List Account)
+decodeAccounts json =
+    JD.decodeString accountsDecoder json
+
 accountEncoder : Account -> Value
 accountEncoder account =
     JE.object
@@ -41,6 +51,14 @@ accountEncoder account =
 encodeAccount : Account -> String
 encodeAccount account =
     JE.encode 0 <| accountEncoder account
+
+accountsEncoder : (List Account) -> Value
+accountsEncoder accounts =
+    JE.list <| List.map accountEncoder accounts
+
+encodeAccounts : (List Account) -> String
+encodeAccounts accounts =
+    JE.encode 0 <| accountsEncoder accounts
 
 type alias Account =
     { name : String

@@ -10,7 +10,7 @@
 ----------------------------------------------------------------------
 
 --port
-module SharedUI exposing ( Model, Msg, AccountSetter
+module SharedUI exposing ( Property, Model, Msg
                          , init, view, update, subscriptions
                          )
 
@@ -132,7 +132,7 @@ type alias Model =
     , page : Page
     , pageState : PageState
     , updater : Updater
-    , accountSetter : AccountSetter
+    , setProperty : (String, Maybe String) -> Cmd Msg
     }
 
 nullUpdater : Updater
@@ -230,10 +230,7 @@ fetchDomainRecordsCmd account domain =
                     DigitalOcean.getDomainRecords
                         acct.token dom.name DomainRecordsReceived
 
-type alias AccountSetter =
-    (String -> Maybe Account -> Cmd Msg)
-
-initialModel : AccountSetter -> Model
+initialModel : ((String, Maybe String) -> Cmd Msg) -> Model
 initialModel setter =
     { message = Nothing
     , accounts = []
@@ -242,12 +239,35 @@ initialModel setter =
     , page = AccountsPage
     , pageState = initialAccountsState
     , updater = accountsUpdater
-    , accountSetter = setter
+    , setProperty = setter
     }
 
-init : List Account -> AccountSetter -> ( Model, Cmd Msg )
-init initialAccounts setter =
-    let accounts = List.sortBy .name initialAccounts
+type alias Property =
+    (String, String)
+
+accountsProperty : String
+accountsProperty =
+    "accounts"
+
+storeAccounts : List Account -> Model -> Cmd Msg
+storeAccounts accounts model =
+    model.setProperty (accountsProperty
+                      , Just <| DigitalOceanAccounts.encodeAccounts accounts
+                      )
+
+initialAccounts : List Property -> List Account
+initialAccounts properties =
+    case LE.find (\pair -> (Tuple.first pair) == accountsProperty) properties of
+        Nothing -> []
+        Just (_, json) ->
+            case DigitalOceanAccounts.decodeAccounts json of
+                Err _ -> []
+                Ok accounts ->
+                    accounts
+
+init : List Property -> ((String, Maybe String) -> Cmd Msg) -> ( Model, Cmd Msg )
+init properties setter =
+    let accounts = List.sortBy .name <| initialAccounts properties
         account = List.head accounts --this should be persistent
         m = initialModel setter
         model = { m
@@ -460,7 +480,7 @@ addAccount account model =
                           , message = Nothing
                           , pageState = initialAccountsState
                       }
-                    , model.accountSetter account.name <| Just account
+                    , storeAccounts accounts model
                     )
 
 changeAccount : String -> Account -> Model -> ( Model, Cmd Msg )
@@ -506,17 +526,7 @@ changeAccount oldName account model =
                           , message = Nothing
                           , pageState = initialAccountsState
                       }
-                    , if oldName == newName then
-                          model.accountSetter oldName <| Just account
-                      else
-                          case newName of
-                              "" ->
-                                  model.accountSetter oldName Nothing
-                              newName ->
-                                  Cmd.batch
-                                      [ model.accountSetter oldName Nothing
-                                      , model.accountSetter newName <| Just account
-                                  ]
+                    , storeAccounts accs model
                     )
 
 accountVerified : AccountInfoResult -> Account -> List Account -> Model -> (Model, Cmd Msg)
