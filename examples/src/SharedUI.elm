@@ -233,8 +233,8 @@ fetchDomainRecordsCmd account domain =
 type alias AccountSetter =
     (String -> Maybe Account -> Cmd Msg)
 
-initialModel : Model
-initialModel =
+initialModel : AccountSetter -> Model
+initialModel setter =
     { message = Nothing
     , accounts = []
     , account = Nothing
@@ -242,19 +242,17 @@ initialModel =
     , page = AccountsPage
     , pageState = initialAccountsState
     , updater = accountsUpdater
-    , accountSetter = (\_ _ -> Cmd.none)
+    , accountSetter = setter
     }
 
--- init : String -> ( Model, Cmd Msg )
--- init json =
 init : List Account -> AccountSetter -> ( Model, Cmd Msg )
 init initialAccounts setter =
     let accounts = List.sortBy .name initialAccounts
         account = List.head accounts --this should be persistent
-        model = { initialModel
+        m = initialModel setter
+        model = { m
                     | accounts = accounts
                     , account = account
-                    , accountSetter = setter
                 }
     in
         ( model
@@ -410,51 +408,60 @@ updateAccountsField field value model =
 
 commitAccounts : Bool -> Model -> ( Model, Cmd Msg )
 commitAccounts doit model =
-    let m = case model.pageState of
-                AccountsState mea ->
-                    case mea of
-                        Nothing -> model
-                        Just ea ->
-                            if not doit then
-                                { model
-                                    | message = Nothing
-                                    , pageState = initialAccountsState }
-                            else
-                                let oldName = ea.oldName
-                                in
-                                    if oldName == "" then
-                                        addAccount ea.account model
-                                    else
-                                        changeAccount oldName ea.account model
-                _ -> model
+    let (m, cmd)
+            = case model.pageState of
+                  AccountsState mea ->
+                      case mea of
+                          Nothing -> ( model, Cmd.none )
+                          Just ea ->
+                              if not doit then
+                                  ( { model
+                                        | message = Nothing
+                                        , pageState = initialAccountsState }
+                                  , Cmd.none
+                                  )
+                              else
+                                  let oldName = ea.oldName
+                                  in
+                                      if oldName == "" then
+                                          addAccount ea.account model
+                                      else
+                                          changeAccount oldName ea.account model
+                  _ -> ( model, Cmd.none )
     in
         -- May need to write accounts to the database,
         -- and test that it's a valid token
         ( m
         , if doit then
-              verifyAccounts m
+              Cmd.batch [ cmd, verifyAccounts m ]
           else
-              Cmd.none
+              cmd
         )
 
-addAccount : Account -> Model -> Model
+addAccount : Account -> Model -> ( Model, Cmd Msg )
 addAccount account model =
     case LE.find (\a -> a.name == account.name) model.accounts of
         Just _ ->
-            { model | message = Just "New name is a duplicate." }
+            ( { model | message = Just "New name is a duplicate." }
+            , Cmd.none
+            )
         Nothing ->
             if account.name == "" then
-                { model | message = Just "Name may not be blank." }
+                ( { model | message = Just "Name may not be blank." }
+                , Cmd.none
+                )
             else
                 let accounts = account :: model.accounts
                 in
-                    { model
-                        | accounts = List.sortBy .name accounts
-                        , message = Nothing
-                        , pageState = initialAccountsState
-                    }
+                    ( { model
+                          | accounts = List.sortBy .name accounts
+                          , message = Nothing
+                          , pageState = initialAccountsState
+                      }
+                    , model.accountSetter account.name <| Just account
+                    )
 
-changeAccount : String -> Account -> Model -> Model
+changeAccount : String -> Account -> Model -> ( Model, Cmd Msg )
 changeAccount oldName account model =
     let accounts = model.accounts
         pred = (\name a -> a.name == name)
@@ -465,10 +472,12 @@ changeAccount oldName account model =
                  LE.find (pred account.name) accounts
         of
             Just _ ->
-                { model
-                    | message
-                      = Just "There is already another account with the new name."
-                }
+                ( { model
+                      | message
+                        = Just "There is already another account with the new name."
+                  }
+                , Cmd.none
+                )
             Nothing ->
                 let accs =
                         if account.name == "" then
@@ -483,12 +492,23 @@ changeAccount oldName account model =
                                               else
                                                   Just sel
                 in
-                    { model
-                        | accounts = List.sortBy .name accs
-                        , account = selectedAccount
-                        , message = Nothing
-                        , pageState = initialAccountsState
-                    }
+                    ( { model
+                          | accounts = List.sortBy .name accs
+                          , account = selectedAccount
+                          , message = Nothing
+                          , pageState = initialAccountsState
+                      }
+                    , if oldName == account.name then
+                          model.accountSetter oldName <| Just account
+                      else
+                          if account.name == "" then
+                              model.accountSetter oldName Nothing
+                          else
+                              Cmd.batch
+                                  [ model.accountSetter oldName Nothing
+                                  , model.accountSetter account.name <| Just account
+                                  ]
+                    )
 
 accountVerified : AccountInfoResult -> Account -> List Account -> Model -> (Model, Cmd Msg)
 accountVerified info account accounts model =

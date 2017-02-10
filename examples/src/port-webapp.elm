@@ -19,15 +19,55 @@ import SharedUI exposing ( Model, Msg, AccountSetter
 import DigitalOceanAccounts exposing (Account)
 
 import Html
+import List.Extra as LE
+import Json.Decode as JD exposing (Decoder)
+import Debug exposing (log)
 
--- This is a port in port-webapp.elm
+-- ports, defined in site/index.html
 port setProperty : (String, Maybe String) -> Cmd a
+
+acctPrefix : String
+acctPrefix =
+    "acct."
+
+acctPrefixLength : Int
+acctPrefixLength =
+    String.length acctPrefix
+
+accountProperty : String -> String
+accountProperty name =
+    acctPrefix ++ name
+
+isAccountProperty : String -> Bool
+isAccountProperty property =
+    (String.left acctPrefixLength property) == acctPrefix
+
+accountName : String -> Maybe String
+accountName property =
+    if isAccountProperty property then
+        Just <| String.dropLeft acctPrefixLength property
+    else
+        Nothing
 
 accountSetter : String -> Maybe Account -> Cmd Msg
 accountSetter name account =
-    Cmd.none                    --TODO
+    let json = case account of
+                   Nothing -> Nothing
+                   Just acct ->
+                       Just <| DigitalOceanAccounts.encodeAccount acct
+    in
+        setProperty (accountProperty name, json)
 
-main : Program (List (String, String)) Model Msg
+type alias Property =
+    (String, String)
+
+getProperty : String -> List Property -> Maybe String
+getProperty key properties =
+    case LE.find (\kv -> (Tuple.first kv) == key) properties of
+        Nothing -> Nothing
+        Just (_, v) -> Just v
+
+main : Program (List Property) Model Msg
 main =
     Html.programWithFlags
         { init = init
@@ -38,4 +78,15 @@ main =
 
 init : List (String, String) -> ( Model, Cmd Msg )
 init properties =
-    SharedUI.init DigitalOceanAccounts.testAccounts accountSetter
+    let pairs = List.filter (\a -> isAccountProperty <| Tuple.first a) properties
+        jsons = List.map Tuple.second pairs
+        results = List.map DigitalOceanAccounts.decodeAccount jsons
+        accounts = List.foldl (\x res ->
+                                   case x of
+                                       Err _ -> res
+                                       Ok account ->
+                                           account :: res
+                              )
+                              [] results
+    in
+        SharedUI.init accounts accountSetter

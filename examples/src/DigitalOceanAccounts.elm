@@ -9,9 +9,38 @@
 --
 ----------------------------------------------------------------------
 
-module DigitalOceanAccounts exposing ( Account, testAccounts )
+module DigitalOceanAccounts exposing ( Account, testAccounts
+                                     , accountDecoder, decodeAccount
+                                     , accountEncoder, encodeAccount
+                                     )
 
 import DigitalOcean exposing (AccountInfoResult)
+
+import Json.Decode as JD exposing (field, Decoder)
+import Json.Encode as JE exposing (Value)
+
+accountDecoder : Decoder Account
+accountDecoder =
+    JD.map3
+        Account
+            (field "name" JD.string)
+            (field "token" JD.string)
+            (JD.succeed Nothing)
+
+decodeAccount : String -> Result String Account
+decodeAccount json =
+    JD.decodeString accountDecoder json
+
+accountEncoder : Account -> Value
+accountEncoder account =
+    JE.object
+        [ ("name", JE.string account.name)
+        , ("token", JE.string account.token)
+        ]
+
+encodeAccount : Account -> String
+encodeAccount account =
+    JE.encode 0 <| accountEncoder account
 
 type alias Account =
     { name : String

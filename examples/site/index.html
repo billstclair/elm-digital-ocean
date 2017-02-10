@@ -47,15 +47,15 @@ var elmDigitalOcean = {};
     localStorage.setItem(propertiesName, JSON.stringify(properties));
   }
 
+  var props = {}
+
   // This isn't used by the Elm code, but is useful for debugging
   // in the JavaScript console.
   function getProperty(property) {
-    var props = getProperties();
     return props[property];
   }
 
   function setProperty(property, value) {
-    var props = getProperties();
     if (value == null) {
       delete props[property];
     } else {
@@ -66,18 +66,17 @@ var elmDigitalOcean = {};
 
   function init() {
     var alist = [];
-    var properties = getProperties();
-    for (key in properties) {
-      alist.push([key, properties[key]]);
+    props = getProperties();
+    for (key in props) {
+      alist.push([key, props[key]]);
     };
 
     var webapp = Elm.DigitalOceanWebapp.fullscreen(alist);
     elmDigitalOcean.webapp = webapp;
 
     webapp.ports.setProperty.subscribe(function(pv) {
-      setProperty(pv[0], pv[1])
+      setProperty(pv[0], pv[1]);
     });
-
   }
 
 })();
