@@ -429,11 +429,9 @@ commitAccounts doit model =
                                           changeAccount oldName ea.account model
                   _ -> ( model, Cmd.none )
     in
-        -- May need to write accounts to the database,
-        -- and test that it's a valid token
         ( m
         , if doit then
-              Cmd.batch [ verifyAccounts m, cmd ]
+              Cmd.batch [ cmd, verifyAccounts m ]
           else
               cmd
         )
@@ -452,9 +450,13 @@ addAccount account model =
                 )
             else
                 let accounts = account :: model.accounts
+                    selectedAccount = case model.account of
+                                          Nothing -> Just account
+                                          a -> a
                 in
                     ( { model
                           | accounts = List.sortBy .name accounts
+                          , account = selectedAccount
                           , message = Nothing
                           , pageState = initialAccountsState
                       }
@@ -465,12 +467,13 @@ changeAccount : String -> Account -> Model -> ( Model, Cmd Msg )
 changeAccount oldName account model =
     let accounts = model.accounts
         newAccount = { account | info = Nothing }
+        newName = newAccount.name
         pred = (\name a -> a.name == name)
     in
-        case if oldName == newAccount.name then
+        case if oldName == newName then
                  Nothing
              else
-                 LE.find (pred newAccount.name) accounts
+                 LE.find (pred newName) accounts
         of
             Just _ ->
                 ( { model
@@ -481,17 +484,21 @@ changeAccount oldName account model =
                 )
             Nothing ->
                 let accs =
-                        if newAccount.name == "" then
+                        if newName == "" then
                             LE.filterNot (pred oldName) accounts
                         else
                             LE.replaceIf (pred oldName) newAccount accounts
-                    selectedAccount = case model.account of
-                                          Nothing -> Nothing
-                                          Just sel ->
-                                              if sel.name == oldName then
+                    selectedAccount = if newName == "" then
+                                          List.head accs
+                                      else
+                                          case model.account of
+                                              Nothing ->
                                                   Just newAccount
-                                              else
-                                                  Just sel
+                                              Just sel ->
+                                                  if sel.name == oldName then
+                                                      Just newAccount
+                                                  else
+                                                      Just sel
                 in
                     ( { model
                           | accounts = List.sortBy .name accs
@@ -499,10 +506,10 @@ changeAccount oldName account model =
                           , message = Nothing
                           , pageState = initialAccountsState
                       }
-                    , if oldName == newAccount.name then
+                    , if oldName == newName then
                           model.accountSetter oldName <| Just account
                       else
-                          case newAccount.name of
+                          case newName of
                               "" ->
                                   model.accountSetter oldName Nothing
                               newName ->
