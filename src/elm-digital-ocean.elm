@@ -1027,10 +1027,29 @@ doCopyDomain _ domainRecords account domainName =
 
 doMoveDomain : Account -> List DomainRecord -> Account -> String -> (Cmd Msg, Bool)
 doMoveDomain fromAccount records toAccount domainName =
+    let toMsg = (\res ->
+                     case res of
+                         Err error -> CopyDomainError error
+                         Ok isWriteable ->
+                             if isWriteable then
+                                 DoCmd
+                                 <| continueMoveDomain
+                                     fromAccount records toAccount domainName
+                             else
+                                 ErrorMessage
+                                     "'To account' is not writeable."
+                        )
+            in
+                ( DigitalOcean.testAccountWriteable toAccount.token toMsg
+                , False
+                )
+
+continueMoveDomain : Account -> List DomainRecord -> Account -> String -> Cmd Msg
+continueMoveDomain fromAccount records toAccount domainName =
     let (cmd, isError) = doCopyDomain fromAccount records toAccount domainName
     in
         if isError then
-            ( cmd, True )
+            cmd
         else
             let toMsg = (\res ->
                              case res of
@@ -1039,9 +1058,7 @@ doMoveDomain fromAccount records toAccount domainName =
                                      DoCmd cmd
                         )
             in
-                ( DigitalOcean.deleteDomain fromAccount.token domainName toMsg
-                , False
-                )
+                DigitalOcean.deleteDomain fromAccount.token domainName toMsg
 
 doChangeDomain : Account -> List DomainRecord -> Account -> String -> (Cmd Msg, Bool)
 doChangeDomain _ records toAccount domainName =
@@ -1646,7 +1663,7 @@ copyDomainMessage storage model =
 copyDomainVerificationRows : CopyDomainStorage -> Model -> (CommitType, List (Html Msg))
 copyDomainVerificationRows storage model =
     let (commitType, message) = copyDomainMessage storage model
-        html = if List.member commitType [ Copy, Change ] then
+        html = if commitType /= Move then
                    []
                else
                    [ tr [] [ td [ colspan 2 ]

@@ -20,6 +20,8 @@ module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
                              , updateDomainRecord, deleteDomainRecord
                              , Droplet, Networks, Network, DropletsResult
                              , getDroplets
+                             , AccountWriteableResult
+                             , testAccountWriteable
                              )
 
 import Json.Decode as JD exposing (field, Decoder)
@@ -54,6 +56,14 @@ domainRecordUrl domain recordId =
 dropletsUrl : String
 dropletsUrl =
     baseUrl ++ "droplets"
+
+tagsUrl : String
+tagsUrl =
+    baseUrl ++ "tags"
+
+tagUrl : String -> String
+tagUrl tag =
+    tagsUrl ++ "/" ++ tag
 
 -- Append this to GET requests that may return more than 25 records.
 -- The code really should do more requests with ?page=N appended,
@@ -541,3 +551,34 @@ getDroplets token resultToMsg =
     sendGetRequest
         (\res -> resultToMsg <| dropletsResToDroplets res)
         token dropletsUrl dropletsResDecoder
+
+type alias AccountWriteableResult =
+    Result Error Bool
+
+nonexistentTag : String
+nonexistentTag =
+    "this tag couldnt possibly exist"
+
+testWriteableResultToBool : Result Error String -> AccountWriteableResult
+testWriteableResultToBool res =
+    case res of
+        Ok _ ->
+            -- If this happens, the tag DID exist, and we just deleted it.
+            Ok True
+        Err error ->
+            case error of
+                Http.BadStatus response ->
+                    case response.status.code of
+                        403 -> Ok False -- forbidden, account not writeable
+                        404 -> Ok True -- not found, as expected
+                        _ -> Err error
+                _ ->
+                    Err error
+
+testAccountWriteable : String -> (AccountWriteableResult -> msg) -> Cmd msg
+testAccountWriteable token resultToMsg =
+    let url = tagUrl nonexistentTag
+    in
+        sendDeleteRequest
+          (\res ->  resultToMsg <| testWriteableResultToBool res)
+          token url
