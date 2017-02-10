@@ -61,12 +61,6 @@ accountSetter name account =
 type alias Property =
     (String, String)
 
-getProperty : String -> List Property -> Maybe String
-getProperty key properties =
-    case LE.find (\kv -> (Tuple.first kv) == key) properties of
-        Nothing -> Nothing
-        Just (_, v) -> Just v
-
 main : Program (List Property) Model Msg
 main =
     Html.programWithFlags
@@ -76,7 +70,7 @@ main =
         , subscriptions = subscriptions
         }
 
-init : List (String, String) -> ( Model, Cmd Msg )
+init : List Property -> ( Model, Cmd Msg )
 init properties =
     let pairs = List.filter (\a -> isAccountProperty <| Tuple.first a) properties
         jsons = List.map Tuple.second pairs

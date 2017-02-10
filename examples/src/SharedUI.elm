@@ -433,7 +433,7 @@ commitAccounts doit model =
         -- and test that it's a valid token
         ( m
         , if doit then
-              Cmd.batch [ cmd, verifyAccounts m ]
+              Cmd.batch [ verifyAccounts m, cmd ]
           else
               cmd
         )
@@ -464,12 +464,13 @@ addAccount account model =
 changeAccount : String -> Account -> Model -> ( Model, Cmd Msg )
 changeAccount oldName account model =
     let accounts = model.accounts
+        newAccount = { account | info = Nothing }
         pred = (\name a -> a.name == name)
     in
-        case if oldName == account.name then
+        case if oldName == newAccount.name then
                  Nothing
              else
-                 LE.find (pred account.name) accounts
+                 LE.find (pred newAccount.name) accounts
         of
             Just _ ->
                 ( { model
@@ -480,15 +481,15 @@ changeAccount oldName account model =
                 )
             Nothing ->
                 let accs =
-                        if account.name == "" then
+                        if newAccount.name == "" then
                             LE.filterNot (pred oldName) accounts
                         else
-                            LE.replaceIf (pred oldName) account accounts
+                            LE.replaceIf (pred oldName) newAccount accounts
                     selectedAccount = case model.account of
                                           Nothing -> Nothing
                                           Just sel ->
                                               if sel.name == oldName then
-                                                  Just account
+                                                  Just newAccount
                                               else
                                                   Just sel
                 in
@@ -498,15 +499,16 @@ changeAccount oldName account model =
                           , message = Nothing
                           , pageState = initialAccountsState
                       }
-                    , if oldName == account.name then
+                    , if oldName == newAccount.name then
                           model.accountSetter oldName <| Just account
                       else
-                          if account.name == "" then
-                              model.accountSetter oldName Nothing
-                          else
-                              Cmd.batch
-                                  [ model.accountSetter oldName Nothing
-                                  , model.accountSetter account.name <| Just account
+                          case newAccount.name of
+                              "" ->
+                                  model.accountSetter oldName Nothing
+                              newName ->
+                                  Cmd.batch
+                                      [ model.accountSetter oldName Nothing
+                                      , model.accountSetter newName <| Just account
                                   ]
                     )
 
