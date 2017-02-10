@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# Compile the application into site/index.html
+
+elm-make src/port-webapp.elm --output site/port-webapp.js

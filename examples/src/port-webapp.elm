@@ -1,39 +1,41 @@
 ----------------------------------------------------------------------
 --
--- reactor-webapp.elm
--- Top level code for debugging version of Digital Ocean webapp.
+-- port-webapp.elm
+-- Top level code for Digital Ocean webapp with persistent accounts.
 -- Copyright (c) 2017 Bill St. Clair <billstclair@gmail.com>
 -- Some rights reserved.
 -- Distributed under the MIT License
 -- See LICENSE.txt
 --
--- This will work in elm-reactor.
--- Use port-webapp.elm for the live page with persistent accounts.
+-- Use reactor-webapp.elm for debugging in elm-reactor.
 --
 ----------------------------------------------------------------------
 
-module DigitalOceanWebapp exposing (..)
+port module DigitalOceanWebapp exposing (..)
 
 import SharedUI exposing ( Model, Msg, AccountSetter
                          , view, update, subscriptions
                          )
-import DigitalOceanAccounts
+import DigitalOceanAccounts exposing (Account)
 
 import Html
 
 -- This is a port in port-webapp.elm
-accountSetter : AccountSetter
-accountSetter key value =
-    Cmd.none
+port setProperty : (String, Maybe String) -> Cmd a
 
+accountSetter : String -> Maybe Account -> Cmd Msg
+accountSetter name account =
+    Cmd.none                    --TODO
+
+main : Program (List (String, String)) Model Msg
 main =
-    Html.program
+    Html.programWithFlags
         { init = init
         , view = view
         , update = update
         , subscriptions = subscriptions
         }
 
-init : ( Model, Cmd Msg )
-init =
+init : List (String, String) -> ( Model, Cmd Msg )
+init properties =
     SharedUI.init DigitalOceanAccounts.testAccounts accountSetter

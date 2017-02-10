@@ -9,5 +9,16 @@ The persistent account store isn't yet implemented. During development, you can 
 
 Then aim your browser at [localhost:8000/src/reactor-webapp.elm](http://localhost:8000/src/reactor-webapp.elm).
 
+To build the live app:
+
+    cd .../elm-digital-ocean/examples
+    bin/build-site
+    
+To upload the live app to my web site (won't work for anybody but me):
+
+    bin/update-site
+    
+`bin/rsyncit` is a synchronization script I've been using for years. It is documented [here](https://steemit.com/hacking/@billstclair/rsyncit).
+
 Bill St. Clair &lt;<billstclair@gmail.com>&gt;<br/>
 10 February 2017

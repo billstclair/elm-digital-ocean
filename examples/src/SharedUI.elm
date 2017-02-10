@@ -231,7 +231,7 @@ fetchDomainRecordsCmd account domain =
                         acct.token dom.name DomainRecordsReceived
 
 type alias AccountSetter =
-    ((String, Maybe String) -> Cmd Msg)
+    (String -> Maybe Account -> Cmd Msg)
 
 initialModel : Model
 initialModel =
@@ -242,7 +242,7 @@ initialModel =
     , page = AccountsPage
     , pageState = initialAccountsState
     , updater = accountsUpdater
-    , accountSetter = (\_ -> Cmd.none)
+    , accountSetter = (\_ _ -> Cmd.none)
     }
 
 -- init : String -> ( Model, Cmd Msg )
@@ -1141,6 +1141,7 @@ view model =
                   , renderNavigationLine props model
                   , props.viewer model
                   ]
+            , footerDiv model
             ]
 
 nbsp2 : Html msg
@@ -1749,3 +1750,48 @@ viewCopyDomainRows storage model =
               ]
               checkRows
         )
+
+mailLink : String -> Html Msg
+mailLink email =
+    span []
+        [ text "<"
+        , a [ href ("mailto:" ++ email) ]
+            [ text email ]
+        , text ">"
+        ]
+
+sqrimg : String -> String -> Int -> Html Msg
+sqrimg url name size =
+    img
+        [ src url
+        , title name
+        , alt name
+        , width size
+        , height size
+        ]
+        []
+
+logoLink : String -> String -> String -> Int -> Html Msg
+logoLink url img name size =
+    a [ href url ]
+        [ sqrimg ("images/" ++ img) name size ]
+
+footerDiv : Model -> Html Msg
+footerDiv model =
+    p [ id S.FooterId
+        , class S.Centered
+        ]
+      [ text (copyright ++ " 2017 Bill St. Clair")
+      , nbsp
+      , mailLink "billstclair@gmail.com"
+      , br
+      , logoLink "https://github.com/billstclair/elm-digital-ocean"
+          "GitHub-Mark-32px.png"
+          "GitHub source code"
+          32
+      , nbsp
+      , logoLink "http://elm-lang.org/"
+          "elm-logo-125x125.png"
+          "Elm inside"
+          28
+      ]

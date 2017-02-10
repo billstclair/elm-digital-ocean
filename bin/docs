@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Create documentation.json, suitable for upload to
+# http://package.elm-lang.org/help/docs-preview
+
+elm-make --docs=documentation.json
