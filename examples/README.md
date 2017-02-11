@@ -20,6 +20,8 @@ To upload the live app to my web site (won't work for anybody but me):
 
     bin/update-site
     
+The app is live at [lisplog.org/elm-do](https://lisplog.org/elm-do/).
+
 `bin/rsyncit` is a synchronization script I've been using for years. It is documented [here](https://steemit.com/hacking/@billstclair/rsyncit).
 
 Bill St. Clair &lt;<billstclair@gmail.com>&gt;<br/>
