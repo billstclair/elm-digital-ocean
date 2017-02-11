@@ -1,7 +1,7 @@
 {
     "version": "1.0.0",
     "summary": "Digital Ocean Client in Elm",
-    "repository": "https://github.com/wws/elm-digital-ocean.git",
+    "repository": "https://github.com/billstclair/elm-digital-ocean.git",
     "license": "MIT",
     "source-directories": [
         ".",
