@@ -69,4 +69,10 @@ type alias Account =
 testAccounts : List Account
 testAccounts =
     [ 
+     {-
+     Account
+         "some-name"
+         "123456789X123456789XX23456789XXX3456789XXXX456789V123456789VI234"
+         Nothing
+     -}
     ]

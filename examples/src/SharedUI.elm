@@ -1395,7 +1395,7 @@ viewDomains model =
         case model.pageState of
             DomainsState domains editing ->
                 [ p [] [ case model.account of
-                             Nothing -> text "No account. Shouldn't happen."
+                             Nothing -> text "No account."
                              Just account ->
                                span []
                                    [ span [ class S.Bold ]
