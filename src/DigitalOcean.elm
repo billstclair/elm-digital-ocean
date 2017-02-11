@@ -24,6 +24,38 @@ module DigitalOcean exposing ( AccountInfo, AccountInfoResult, getAccount
                              , testAccountWriteable
                              )
 
+{-| This module is a client to part of the [HTTP API](https://developers.digitalocean.com/documentation/v2/) for [Digital Ocean](https://www.digitalocean.com/).
+
+It includes just enough to move and copy domains between accounts,
+a feature that's missing from Digital Ocean's web interface.
+
+The functions all take a `token` as their first argument.
+You can create tokens [here](https://cloud.digitalocean.com/settings/api/tokens) for the logged-in account.
+
+The getters will work with a read-only token.
+Anything that makes a change requires a read/write token.
+
+More to come, in my copious spare time, and from your generous pull requests.
+
+# Classes
+@docs AccountInfo, AccountInfoResult
+@docs Domain, DomainsResult, DomainResult, DeleteResult
+@docs NewDomain
+@docs DomainRecord, DomainRecordUpdate
+@docs DomainRecordsResult, DomainRecordResult
+@docs Droplet, Networks, Network, DropletsResult
+@docs AccountWriteableResult
+
+# Functions
+@docs getAccount
+@docs getDomains, getDomain, deleteDomain, createDomain
+@docs getDomainRecords, getDomainRecord, createDomainRecord
+@docs updateDomainRecord, deleteDomainRecord
+@docs getDroplets
+@docs testAccountWriteable
+
+-}
+
 import Json.Decode as JD exposing (field, Decoder)
 import Json.Encode as JE exposing (Value)
 import Http exposing (Error)
@@ -167,6 +199,8 @@ sendDeleteRequest resultToMsg token url =
 --- Accounts
 ---
 
+{-| Information returned by the ["account" query](https://developers.digitalocean.com/documentation/v2/#get-user-information).
+-}
 type alias AccountInfo =
     { dropletLimit : Int
     , floatingIpLimit : Int
@@ -198,6 +232,8 @@ accountResDecoder =
         AccountRes
         (field "account" accountInfoDecoder)
 
+{-| `Result` of the `getAccount` function
+-}
 type alias AccountInfoResult =
     Result Error AccountInfo
 
@@ -208,6 +244,14 @@ accountResToInfo res =
         Ok accountRes ->
             Ok accountRes.account
 
+{-| Get information about a Digital Ocean account.
+
+    getAccount token resultToMsg
+    
+The resulting command will call your resultToMsg function with an `AccountInfoResult` record.
+
+Invokes the [Get User Information API](https://developers.digitalocean.com/documentation/v2/#get-user-information).
+-}
 getAccount : String -> (AccountInfoResult -> msg) -> Cmd msg
 getAccount token resultToMsg =
     sendGetRequest
@@ -218,6 +262,10 @@ getAccount token resultToMsg =
 --- Domains
 ---
 
+{-| Information about a domain.
+
+Returned by `getDomains`, `getDomain`, and `createDomain`.
+-}
 type alias Domain =
     { name : String
     , ttl : Maybe Int
@@ -242,6 +290,8 @@ domainsResDecoder =
         DomainsRes
         (field "domains" (JD.list domainDecoder))
 
+{-| `Result` of the `getDomains` function.
+-}
 type alias DomainsResult =
     Result Error (List Domain)
 
@@ -252,30 +302,60 @@ domainsResToDomains res =
         Ok domainsRes ->
             Ok domainsRes.domains
 
+{-| Get a list of DNS domains for a Digital Ocean account.
+
+    getDomains token resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DomainsResult` record.
+
+Invokes the [List All Domains API](https://developers.digitalocean.com/documentation/v2/#list-all-domains).
+-}
 getDomains : String -> (DomainsResult -> msg) -> Cmd msg
 getDomains token resultToMsg =
     sendGetRequest
         (\res -> resultToMsg <| domainsResToDomains res)
         token domainsUrl domainsResDecoder 
 
+{-| `Result` of the `getDomain` function.
+-}
 type alias DomainResult =
     Result Error Domain
 
+{-| Get information for a single DNS domain in a Digital Ocean account.
+
+    getDomain token domain resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DomainResult` record.
+
+Invokes the [Retreive an existing Domain API](https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain).
+-}
 getDomain : String -> String -> (DomainResult -> msg) -> Cmd msg
 getDomain token domain resultToMsg =
     let url = domainUrl domain
     in
         sendGetRequest resultToMsg token url domainDecoder
 
+{-| `Result` of the `deleteDomain` function.
+-}
 type alias DeleteResult =
     Result Error String
 
+{-| Removes a domain from a Digital Ocean account.
+
+    removeDomain token domain resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DeleteResult` record.
+
+Invokes the [Delete a Domain API](https://developers.digitalocean.com/documentation/v2/#delete-a-domain).
+-}
 deleteDomain : String -> String -> (DeleteResult -> msg) -> Cmd msg
 deleteDomain token domain resultToMsg =
     let url = domainUrl domain
     in
         sendDeleteRequest resultToMsg token url
 
+{-| Input to the `newDomain` function.
+-}
 type alias NewDomain =
     { name : String
     , ip : String
@@ -305,6 +385,16 @@ domainResDecoder =
         DomainRes
         (field "domain" domainDecoder)
 
+{-| Create a new DNS domain for a Digital Ocean account.
+
+    createDomain token domain resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DomainResult` record.
+
+The new domain will have the standard Digital Ocean NS records and an "A" record for the `ip` in the passed-in `domain` record.
+
+Invokes the [Retreive an existing Domain API](https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain).
+-}
 createDomain : String -> NewDomain -> (DomainResult -> msg) -> Cmd msg
 createDomain token domain resultToMsg =
     sendPostRequest
@@ -315,6 +405,12 @@ createDomain token domain resultToMsg =
 --- Domain Records
 ---
 
+{-| Information about a single domain record.
+
+Retured by the `getDomainRecords`, `getDomainRecord`, and `createDomainRecord` functions.
+
+Input to the `createDomainRecord` function.
+-}
 type alias DomainRecord =
     { id : Int
     , recordType : String
@@ -325,6 +421,10 @@ type alias DomainRecord =
     , srvWeight : Maybe Int     -- for SRV records
     }
 
+{-| Properties of a domain record to update.
+
+Input to the `updateDomainRecord` function.
+-}
 type alias DomainRecordUpdate =
     { recordType : String
     , name : Maybe String
@@ -365,6 +465,8 @@ domainRecordsResDecoder =
         DomainRecordsRes
         (field "domain_records" <| JD.list domainRecordDecoder)
 
+{-| `Result` of the `getDomainRecords` function.
+-}
 type alias DomainRecordsResult =
     Result Error (List DomainRecord)
 
@@ -375,12 +477,22 @@ domainRecordsResToDomainRecords res =
         Ok domainRecordsRes ->
             Ok domainRecordsRes.domainRecords
 
+{-| Get a list of domain records for a Digital Ocean domain.
+
+    getDomainRecords token domain resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DomainRecordsResult` record.
+
+Invokes the [List all Domain Records API](https://developers.digitalocean.com/documentation/v2/#list-all-domain-records).
+-}
 getDomainRecords : String -> String -> (DomainRecordsResult -> msg) -> Cmd msg
 getDomainRecords token domain resultToMsg =
     sendGetRequest
         (\res -> resultToMsg <| domainRecordsResToDomainRecords res)
         token (domainRecordsUrl domain) domainRecordsResDecoder
 
+{-| `Result` of the `getDomainRecord` function.
+-}
 type alias DomainRecordResult =
     Result Error DomainRecord
 
@@ -391,6 +503,16 @@ domainRecordResToDomainRecord res =
         Ok domainRecordRes ->
             Ok domainRecordRes.domainRecord
 
+{-| Get a single domain record for a Digital Ocean domain.
+
+    getDomainRecord token domain id resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DomainRecordResult` record.
+
+You have to know the record's `id`, which is returned by `getDomainRecords`.
+
+Invokes the [Retrieve an existing Domain Record API](https://developers.digitalocean.com/documentation/v2/#retrieve-an-existing-domain-record).
+-}
 getDomainRecord : String -> String -> Int -> (DomainRecordResult -> msg) -> Cmd msg
 getDomainRecord token domain id resultToMsg =
     sendGetRequest
@@ -461,7 +583,18 @@ dotifyDomainRecordUpdate record =
             Just d ->
                 { record | data = Just <| dotifyData d }
 
--- The domain.id field is ignored
+{-| Create a new domain record for a Digital Ocean domain.
+
+    createDomainRecord token domain record resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DomainRecordResult` record.
+
+The `id` field in the passed-in `domain` record is ignored.
+
+Will add a dot (".") to the end of the `data` field for "CNAME" and "MX" records, if their value is not "@", and the dot isn't there already.
+
+Invokes the [Create a new Domain Record API](https://developers.digitalocean.com/documentation/v2/#create-a-new-domain-record).
+-}
 createDomainRecord : String -> String -> DomainRecord -> (DomainRecordResult -> msg) -> Cmd msg
 createDomainRecord token domain record resultToMsg =
     sendPostRequest
@@ -470,6 +603,18 @@ createDomainRecord token domain record resultToMsg =
         (newDomainRecordEncoder <| dotifyDomainRecord record)
         domainRecordResDecoder
 
+{-| Update an existing domain record for a Digital Ocean domain.
+
+    updateDomainRecord token domain id record resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DomainRecordResult` record.
+
+Updates only the fields in the passed-in `record` whose values are not `Nothing`.
+
+Will add a dot (".") to the end of the `data` field for "CNAME" and "MX" records, if their value is not "@", and the dot isn't there already.
+
+Invokes the [Update an existing Domain Record API](https://developers.digitalocean.com/documentation/v2/#update-a-domain-record).
+-}
 updateDomainRecord : String -> String -> Int -> DomainRecordUpdate -> (DomainRecordResult -> msg) -> Cmd msg
 updateDomainRecord token domain id record resultToMsg =
     sendPutRequest
@@ -478,6 +623,14 @@ updateDomainRecord token domain id record resultToMsg =
         (updatedDomainRecordEncoder <| dotifyDomainRecordUpdate record)
         domainRecordResDecoder
 
+{-| Delete an existing domain record from a Digital Ocean domain.
+
+    deleteDomainRecord token domain id resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DeleteResult` record.
+
+Invokes the [Delete a Domain Record API](https://developers.digitalocean.com/documentation/v2/#delete-a-domain-record).
+-}
 deleteDomainRecord : String -> String -> Int -> (DeleteResult -> msg) -> Cmd msg
 deleteDomainRecord token domain id resultToMsg =
     let url = domainRecordUrl domain id
@@ -488,6 +641,10 @@ deleteDomainRecord token domain id resultToMsg =
 --- Droplets - Just enough to get their IP addresses
 ---
 
+{-| Information about a single network interface for a droplet.
+
+Part of the `Networks` record.
+-}
 type alias Network =
     { ip : String
     , networkType : String
@@ -500,6 +657,10 @@ networkDecoder =
         (field "ip_address" JD.string)
         (field "type" JD.string)
 
+{-| The lists of v4 ("A" record) and v6 ("AAAA" record) networks for a droplet.
+
+Part of the `Droplet` record.
+-}
 type alias Networks =
     { v4 : List Network
     , v6 : List Network
@@ -512,6 +673,10 @@ networksDecoder =
         (field "v4" (JD.list networkDecoder))
         (field "v6" (JD.list networkDecoder))
 
+{-| The network-related information about a Droplet.
+
+Returned by the `getDroplets` function.
+-}
 type alias Droplet =
     { id : Int
     , name : String
@@ -536,6 +701,8 @@ dropletsResDecoder =
         DropletsRes
         (field "droplets" <| JD.list dropletDecoder)
 
+{-| The `Result` of the `getDroplets` function.
+-}
 type alias DropletsResult =
     Result Error (List Droplet)
 
@@ -546,12 +713,22 @@ dropletsResToDroplets res =
         Ok dropletsRes ->
             Ok dropletsRes.droplets
 
+{-| Returns information about all the droplets in a Digital Ocean account.
+
+    getDroplets token resultToMsg
+    
+The resulting command will call your resultToMsg function with a `DropletsResult` record.
+
+Invokes the [List all Droplets API](https://developers.digitalocean.com/documentation/v2/#list-all-droplets).
+-}
 getDroplets : String -> (DropletsResult -> msg) -> Cmd msg
 getDroplets token resultToMsg =
     sendGetRequest
         (\res -> resultToMsg <| dropletsResToDroplets res)
         token dropletsUrl dropletsResDecoder
 
+{-| The `Result` of the `testAccountWriteable` function.
+-}
 type alias AccountWriteableResult =
     Result Error Bool
 
@@ -575,6 +752,16 @@ testWriteableResultToBool res =
                 _ ->
                     Err error
 
+{-| Tests whether the `token` for a Digital Ocean account gives write access.
+
+    testAccountWriteable token resultToMsg
+    
+The resulting command will call your resultToMsg function with an `AccountWriteableResult` record.
+
+It works by attempting to delete a sure-to-not-exist resource tag, and inspecting the result. If it gets a 403 ("forbidden"), then the account is not writeable. If it gets a 404 ("not found"), then it IS writeable.
+
+Invokes the [Delete a Tag API](https://developers.digitalocean.com/documentation/v2/#delete-a-tag).
+-}
 testAccountWriteable : String -> (AccountWriteableResult -> msg) -> Cmd msg
 testAccountWriteable token resultToMsg =
     let url = tagUrl nonexistentTag
